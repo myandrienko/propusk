@@ -14,12 +14,18 @@ export function env(key: keyof NodeJS.ProcessEnv): string {
   const value = process.env[key];
 
   if (!value) {
-    throw new Error(`Missing environment variable: ${key}`);
+    throw new Error(`Missing environment variable: "${key}"`);
   }
 
   return value;
 }
 
 export function envHex(key: keyof NodeJS.ProcessEnv): Uint8Array {
-  return base16.decode(env(key));
+  const str = env(key);
+
+  try {
+    return base16.decode(str);
+  } catch {
+    throw new Error(`Environment variable "${key}" is not a hex string`);
+  }
 }
