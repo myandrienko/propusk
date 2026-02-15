@@ -56,6 +56,12 @@ export const sealedValueExp = withStrategy({
   },
 });
 
+export function parseExpAt(sealed: string): number {
+  const bytes = base64urlnopad.decode(sealed);
+  const view = createView(bytes);
+  return view.getUint32(0);
+}
+
 export const sealedId = withStrategy({
   nonce: () => [new Uint8Array(gcmsiv.nonceLength), false],
   parse: (ct: Uint8Array) => [new Uint8Array(gcmsiv.nonceLength), ct],

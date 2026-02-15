@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { sealedValue, sealedValueExp, sealedId, ExpiredError } from "./seal.ts";
+import { sealedValue, sealedValueExp, sealedId, parseExpAt, ExpiredError } from "./seal.ts";
 import { envHex } from "./env.ts";
 
 const key = envHex("SEAL_KEY");
@@ -50,6 +50,12 @@ describe("sealedValueExp", () => {
       () => sv.unseal(sealed, { now: now + 6, clockTolerance: 5 }),
       ExpiredError,
     );
+  });
+
+  it("parseExpAt returns the expiration timestamp", () => {
+    const expAt = now + 3600;
+    const sealed = sv.seal(payload, { expAt });
+    assert.equal(parseExpAt(sealed), expAt);
   });
 });
 
