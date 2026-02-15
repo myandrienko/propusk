@@ -1,16 +1,18 @@
 import { base16 } from "@scure/base";
 
+interface Env {
+  UPSTASH_REDIS_REST_URL?: string;
+  UPSTASH_REDIS_REST_TOKEN?: string;
+  SEAL_KEY?: string;
+}
+
 declare global {
   namespace NodeJS {
-    interface ProcessEnv {
-      UPSTASH_REDIS_REST_URL: string;
-      UPSTASH_REDIS_REST_TOKEN: string;
-      SEAL_KEY: string;
-    }
+    interface ProcessEnv extends Env {}
   }
 }
 
-export function env(key: keyof NodeJS.ProcessEnv): string {
+export function env(key: keyof Env): string {
   const value = process.env[key];
 
   if (!value) {
@@ -20,7 +22,7 @@ export function env(key: keyof NodeJS.ProcessEnv): string {
   return value;
 }
 
-export function envHex(key: keyof NodeJS.ProcessEnv): Uint8Array {
+export function envHex(key: keyof Env): Uint8Array {
   const str = env(key);
 
   try {
