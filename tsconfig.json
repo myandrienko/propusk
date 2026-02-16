@@ -15,6 +15,7 @@
     "rewriteRelativeImportExtensions": true,
     "moduleDetection": "force",
     "jsx": "react-jsx",
+    "allowJs": true,
     "incremental": true,
     "plugins": [
       {

@@ -1,13 +1,13 @@
-import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { describe, it } from "node:test";
+import { envHex } from "./env.ts";
 import {
+  ExpiredError,
+  parseExpAt,
+  sealedId,
   sealedValue,
   sealedValueEx,
-  sealedId,
-  parseExpAt,
-  ExpiredError,
 } from "./seal.ts";
-import { envHex } from "./env.ts";
 import { unix } from "./time.ts";
 
 const key = envHex("SEAL_KEY");
