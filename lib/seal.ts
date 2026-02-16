@@ -13,6 +13,10 @@ export interface ExpirationCheckOptions {
   clockTolerance?: number;
 }
 
+/**
+ * Symmetrically encrypted authenticated value, represented with
+ * a base64url-encoded token.
+ */
 export const sealedValue = withStrategy({
   nonce: () => [randomBytes(gcmsiv.nonceLength), true],
   parse: (ct: Uint8Array) => [
@@ -21,6 +25,10 @@ export const sealedValue = withStrategy({
   ],
 });
 
+/**
+ * Symmetrically encrypted authenticated value, represented with
+ * a base64url-encoded token, with a specified expiration timestamp.
+ */
 export const sealedValueEx = withStrategy({
   nonce: (options: ExpirationOptions) => {
     const maxUint32 = 0xffff_ffff;
@@ -52,28 +60,37 @@ export const sealedValueEx = withStrategy({
   },
 });
 
+/**
+ * Given a value sealed by `sealedValueEx`, returns its expiration timestamp
+ * (unix time).
+ */
 export function parseExpAt(sealed: string): number {
   const bytes = base64urlnopad.decode(sealed);
   const view = createView(bytes);
   return view.getUint32(0);
 }
 
+/**
+ * Symmetrically and deterministically encrypted authenticated value,
+ * represented with a base64url-encoded token. Equal payloads produce equal
+ * tokens, which makes it useful for obfuscating IDs.
+ */
 export const sealedId = withStrategy({
   nonce: () => [new Uint8Array(gcmsiv.nonceLength), false],
   parse: (ct: Uint8Array) => [new Uint8Array(gcmsiv.nonceLength), ct],
 });
 
-export class ExpiredError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "ExpiredError";
-  }
-}
-
 export class InvalidSealedValueError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "InvalidSealedValueError";
+  }
+}
+
+export class ExpiredError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ExpiredError";
   }
 }
 

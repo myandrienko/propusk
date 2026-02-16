@@ -56,12 +56,24 @@ const generateCode = customAlphabet(
 );
 const generateRandomness = customAlphabet(urlAlphabet, 16);
 
+/**
+ * Challenge ID is constructed as a random 8-character alphanumeric code (used
+ * for manual entry and lookups) followed by 16 additional random base64url
+ * characters.
+ */
 function generateId(): { code: string; id: string } {
   const code = generateCode();
   const id = `${code}${generateRandomness()}`;
   return { code, id };
 }
 
+/**
+ * Given a challenge ID, decodes it from base64url, then generates
+ * the following values:
+ * - token: sealed value with an expiration timestamp of `exat`;
+ * - mnemonic: human-readable representation of the ID, generated using
+ *   the BIP39 algorithm from the first 128 bits of the payload.
+ */
 function generateTokens(id: string): {
   token: string;
   mnemonic: string;
