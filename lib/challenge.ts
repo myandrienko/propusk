@@ -5,7 +5,7 @@ import { customAlphabet, urlAlphabet } from "nanoid";
 import { envHex } from "./env.ts";
 import { sealedValueEx } from "./seal.ts";
 import { unix } from "./time.ts";
-import { getClient } from "./upstash.ts";
+import { getRedis } from "./redis.ts";
 
 export interface Challenge {
   code: string;
@@ -15,7 +15,7 @@ export interface Challenge {
 }
 
 export async function createChallenge(): Promise<Challenge> {
-  const redis = getClient();
+  const redis = getRedis();
   const { code, id } = generateId();
   const { token, mnemonic, exat } = generateTokens(id);
   const status: ChallengeStatus = "pending";
@@ -61,7 +61,10 @@ const generateRandomness = customAlphabet(urlAlphabet, 16);
  * for manual entry and lookups) followed by 16 additional random base64url
  * characters.
  */
-function generateId(): { code: string; id: string } {
+function generateId(): {
+  code: string;
+  id: string;
+} {
   const code = generateCode();
   const id = `${code}${generateRandomness()}`;
   return { code, id };
@@ -82,10 +85,18 @@ function generateTokens(id: string): {
   const payload = base64urlnopad.decode(id);
   const exat = unix() + 10 * 60; // 10 minutes
   const token = sealedValueEx(envHex("SEAL_KEY")).seal(payload, { exat });
-  const mnemonic = bip39.entropyToMnemonic(payload.slice(0, 16), wordlist);
+  // Length of entropy for BIP39 must be a multiple of 32 bits:
+  const entropy = payload.slice(0, Math.trunc(payload.length / 4) * 4);
+  const mnemonic = bip39.entropyToMnemonic(entropy, wordlist);
   return { token, mnemonic, exat };
 }
 
-function parseChallengeId(id: string): [code: string, id: string] {
-  return [id.slice(0, codeLength), id];
+function parseToken(token: string): {
+  code: string;
+  id: string;
+} {
+  const payload = sealedValueEx(envHex("SEAL_KEY")).unseal(token);
+  const id = base64urlnopad.encode(payload);
+  const code = id.slice(0, codeLength);
+  return { code, id };
 }
