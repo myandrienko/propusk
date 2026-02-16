@@ -1,10 +1,11 @@
 import { gcmsiv } from "@noble/ciphers/aes.js";
 import { concatBytes, createView, randomBytes } from "@noble/ciphers/utils.js";
 import { base64urlnopad } from "@scure/base";
+import { unix } from "./time.ts";
 
 export type ExpirationOptions = { now?: number } & (
-  | { exp: number }
-  | { expAt: number }
+  | { ex: number }
+  | { exat: number }
 );
 
 export interface ExpirationCheckOptions {
@@ -20,15 +21,13 @@ export const sealedValue = withStrategy({
   ],
 });
 
-export const sealedValueExp = withStrategy({
+export const sealedValueEx = withStrategy({
   nonce: (options: ExpirationOptions) => {
     const maxUint32 = 0xffff_ffff;
-    const expAt =
-      "exp" in options
-        ? (options.now ?? Math.trunc(Date.now() / 1000)) + options.exp
-        : options.expAt;
+    const exat =
+      "ex" in options ? (options.now ?? unix()) + options.ex : options.exat;
 
-    if (expAt < 0 || expAt > maxUint32) {
+    if (exat < 0 || exat > maxUint32) {
       throw new Error(
         `Expiration timestamp must be between 0 and ${maxUint32}`,
       );
@@ -36,19 +35,16 @@ export const sealedValueExp = withStrategy({
 
     const nonce = randomBytes(gcmsiv.nonceLength);
     const view = createView(nonce);
-    view.setUint32(0, expAt);
+    view.setUint32(0, exat);
     return [nonce, true];
   },
 
   parse: (ct: Uint8Array, options: ExpirationCheckOptions = {}) => {
     const nonce = ct.subarray(0, gcmsiv.nonceLength);
     const view = createView(nonce);
-    const expAt = view.getUint32(0);
+    const exat = view.getUint32(0);
 
-    if (
-      expAt + (options.clockTolerance ?? 0) <
-      (options.now ?? Math.trunc(Date.now() / 1000))
-    ) {
+    if (exat + (options.clockTolerance ?? 0) < (options.now ?? unix())) {
       throw new ExpiredError("Sealed value expired");
     }
 
