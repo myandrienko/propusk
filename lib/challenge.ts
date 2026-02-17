@@ -3,9 +3,10 @@ import * as bip39 from "@scure/bip39";
 import { wordlist } from "@scure/bip39/wordlists/english.js";
 import { customAlphabet, urlAlphabet } from "nanoid";
 import { envHex } from "./env.ts";
+import { getRedis } from "./redis.ts";
+import { createScript } from "./script.ts";
 import { sealedValueEx } from "./seal.ts";
 import { unix } from "./time.ts";
-import { getRedis } from "./redis.ts";
 
 export interface Challenge {
   code: string;
@@ -17,7 +18,7 @@ export interface Challenge {
 export async function createChallenge(): Promise<Challenge> {
   const redis = getRedis();
   const { code, id } = generateId();
-  const { token, mnemonic, exat } = generateTokens(id);
+  const exat = unix() + 10 * 60; // 10 minutes
   const status: ChallengeStatus = "pending";
 
   const res = await redis.set<ChallengeRecord>(
@@ -30,7 +31,14 @@ export async function createChallenge(): Promise<Challenge> {
     throw new ChallengeConflictError("Challenge code already in use");
   }
 
+  const { token, mnemonic } = generateTokens(id, exat);
   return { code, token, mnemonic, status };
+}
+
+export async function tryConsumeChallenge(token: string) {
+  const { code, id } = parseToken(token);
+  const res = await consumeChallenge([`challenge:${code}`], id);
+  return res;
 }
 
 export class ChallengeConflictError extends Error {
@@ -77,18 +85,19 @@ function generateId(): {
  * - mnemonic: human-readable representation of the ID, generated using
  *   the BIP39 algorithm from the first 128 bits of the payload.
  */
-function generateTokens(id: string): {
+function generateTokens(
+  id: string,
+  exat: number,
+): {
   token: string;
   mnemonic: string;
-  exat: number;
 } {
   const payload = base64urlnopad.decode(id);
-  const exat = unix() + 10 * 60; // 10 minutes
   const token = sealedValueEx(envHex("SEAL_KEY")).seal(payload, { exat });
   // Length of entropy for BIP39 must be a multiple of 32 bits:
   const entropy = payload.slice(0, Math.trunc(payload.length / 4) * 4);
   const mnemonic = bip39.entropyToMnemonic(entropy, wordlist);
-  return { token, mnemonic, exat };
+  return { token, mnemonic };
 }
 
 function parseToken(token: string): {
@@ -100,3 +109,22 @@ function parseToken(token: string): {
   const code = id.slice(0, codeLength);
   return { code, id };
 }
+
+const consumeChallenge = createScript<(id: string) => 0 | 1>(`
+local data = redis.call('GET', KEYS[1])
+if not data then
+  return {err = 'NOT_FOUND'}
+end
+
+local challenge = cjson.decode(data)
+if challenge.id ~= ARGV[1] then
+  return {err = 'NOT_FOUND'}
+end
+
+if challenge.status ~= 'passed' then
+  return 0
+end
+
+redis.call('DEL', KEYS[1])
+return 1
+`);
