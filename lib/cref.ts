@@ -30,7 +30,7 @@ export class ChallengeRef {
     let payload: Uint8Array;
 
     try {
-      [payload] = sealedValueEx(envHex("SEAL_KEY")).unseal(token);
+      payload = sealedValueEx(envHex("SEAL_KEY")).unseal(token);
     } catch (err) {
       if (
         err instanceof InvalidSealedValueError ||
