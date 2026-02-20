@@ -62,16 +62,6 @@ export const sealedValueEx = withStrategy({
 });
 
 /**
- * Given a value sealed by `sealedValueEx`, returns its expiration timestamp
- * (unix time).
- */
-export function parseExpAt(sealed: string): number {
-  const bytes = base64urlnopad.decode(sealed);
-  const view = createView(bytes);
-  return view.getUint32(0);
-}
-
-/**
  * Symmetrically and deterministically encrypted authenticated value,
  * represented with a base64url-encoded token. Equal payloads produce equal
  * tokens, which makes it useful for obfuscating IDs.

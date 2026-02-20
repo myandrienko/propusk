@@ -3,7 +3,7 @@ import { describe, it } from "node:test";
 import { envHex } from "./env.ts";
 import {
   ExpiredSealedValueError,
-  parseExpAt,
+  parseExat,
   sealedId,
   sealedValue,
   sealedValueEx,
@@ -60,12 +60,6 @@ describe("sealedValueExp", () => {
       () => sv.unseal(sealed, { now: now + 6, clockTolerance: 5 }),
       ExpiredSealedValueError,
     );
-  });
-
-  it("parseExpAt returns the expiration timestamp", () => {
-    const expAt = now + 3600;
-    const sealed = sv.seal(payload, { exat: expAt });
-    assert.equal(parseExpAt(sealed), expAt);
   });
 });
 
