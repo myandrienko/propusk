@@ -1,5 +1,6 @@
-import type { Redis } from "@upstash/redis";
 import { getRedis } from "./redis.ts";
+import { sha1 } from "@noble/hashes/legacy.js";
+import { hex } from "@scure/base";
 
 export interface Script<T extends (...args: string[]) => unknown> {
   (keys: string[], ...args: Parameters<T>): Promise<ReturnType<T>>;
@@ -10,26 +11,45 @@ export function script<T extends (...args: string[]) => unknown>(
   ...substitutions: unknown[]
 ): Script<T> {
   const src = String.raw({ raw: template }, substitutions).trim();
-  return createScript(src);
+  const cachedScript = new CachedScript<T>(src);
+  return cachedScript.exec.bind(cachedScript);
 }
 
 // Private
 
-type RedisScript<R> = ReturnType<typeof Redis.prototype.createScript<R, false>>;
+class CachedScript<T extends (...args: string[]) => unknown> {
+  private src: string;
+  private sha: string | undefined;
 
-function createScript<T extends (...args: string[]) => unknown>(
-  src: string,
-): Script<T> {
-  let script: RedisScript<ReturnType<T>>;
+  constructor(src: string) {
+    this.src = src;
+  }
 
-  return async function execScript(
-    keys: string[],
-    ...args: Parameters<T>
-  ): Promise<ReturnType<T>> {
-    if (!script) {
-      script = getRedis().createScript(src);
+  async exec(keys: string[], ...args: Parameters<T>): Promise<ReturnType<T>> {
+    const redis = getRedis();
+    const sha = this.digest();
+
+    try {
+      return await redis.evalsha<Parameters<T>, ReturnType<T>>(sha, keys, args);
+    } catch (err) {
+      if (err instanceof Error && err.message.includes("NOSCRIPT")) {
+        return await redis.eval<Parameters<T>, ReturnType<T>>(
+          this.src,
+          keys,
+          args,
+        );
+      }
+
+      throw err;
+    }
+  }
+
+  private digest() {
+    if (!this.sha) {
+      const bytes = new TextEncoder().encode(this.src);
+      this.sha = hex.encode(sha1(bytes));
     }
 
-    return await script.exec(keys, args);
-  };
+    return this.sha;
+  }
 }
