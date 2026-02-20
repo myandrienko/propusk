@@ -53,7 +53,7 @@ export const sealedValueEx = withStrategy({
     const exat = view.getUint32(0);
 
     if (exat + (options.clockTolerance ?? 0) < (options.now ?? unix())) {
-      throw new ExpiredError("Sealed value expired");
+      throw new ExpiredSealedValueError("Sealed value expired");
     }
 
     return [nonce, ct.subarray(gcmsiv.nonceLength)];
@@ -87,10 +87,10 @@ export class InvalidSealedValueError extends Error {
   }
 }
 
-export class ExpiredError extends Error {
+export class ExpiredSealedValueError extends Error {
   constructor(message: string) {
     super(message);
-    this.name = "ExpiredError";
+    this.name = "ExpiredSealedValueError";
   }
 }
 
