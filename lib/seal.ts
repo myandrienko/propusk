@@ -1,6 +1,7 @@
 import { gcmsiv } from "@noble/ciphers/aes.js";
 import { concatBytes, createView, randomBytes } from "@noble/ciphers/utils.js";
 import { base64urlnopad } from "@scure/base";
+import { UnauthorizedError } from "./errors.ts";
 import { unix } from "./time.ts";
 
 export type ExpirationOptions = { now?: number } & (
@@ -80,18 +81,12 @@ export const sealedId = withStrategy({
   parse: (ct: Uint8Array) => [new Uint8Array(gcmsiv.nonceLength), ct],
 });
 
-export class InvalidSealedValueError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "InvalidSealedValueError";
-  }
+export class InvalidSealedValueError extends UnauthorizedError {
+  name = "InvalidSealedValueError";
 }
 
-export class ExpiredSealedValueError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "ExpiredSealedValueError";
-  }
+export class ExpiredSealedValueError extends UnauthorizedError {
+  name = "ExpiredSealedValueError";
 }
 
 // Private

@@ -6,6 +6,7 @@ import {
 } from "../models/challenge.ts";
 import type { User } from "../models/user.ts";
 import { envHex } from "./env.ts";
+import { ConflictError, NotFoundError, UnauthorizedError } from "./errors.ts";
 import { getRedis } from "./redis.ts";
 import { script } from "./script.ts";
 import {
@@ -96,25 +97,16 @@ export async function tryConsumeChallenge(
 
 export async function passChallenge(token: string, user: User) {}
 
-export class ChallengeNotFoundError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "ChallengeNotFoundError";
-  }
+export class ChallengeNotFoundError extends NotFoundError {
+  name = "ChallengeNotFoundError";
 }
 
-export class ChallengeConflictError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "ChallengeConflictError";
-  }
+export class ChallengeConflictError extends ConflictError {
+  name = "ChallengeConflictError";
 }
 
-export class InvalidChallengeTokenError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "InvalidChallengeTokenError";
-  }
+export class InvalidChallengeTokenError extends UnauthorizedError {
+  name = "InvalidChallengeTokenError";
 }
 
 // Private
@@ -149,6 +141,7 @@ function unsealToken(token: string): ChallengeRef {
     ) {
       throw new InvalidChallengeTokenError(
         "Challenge token is invalid or expired",
+        { cause: err },
       );
     }
 
