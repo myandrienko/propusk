@@ -1,20 +1,14 @@
-import { base64urlnopad } from "@scure/base";
 import {
   ChallengeRef,
+  getChallengeKey,
   type Challenge,
   type ChallengeStatus,
-} from "../models/challenge.ts";
-import type { User } from "../models/user.ts";
-import { envHex } from "./env.ts";
-import { ConflictError, NotFoundError, UnauthorizedError } from "./errors.ts";
+} from "./cref.ts";
+import { ConflictError, NotFoundError } from "./errors.ts";
 import { getRedis } from "./redis.ts";
 import { script } from "./script.ts";
-import {
-  ExpiredSealedValueError,
-  InvalidSealedValueError,
-  sealedValueEx,
-} from "./seal.ts";
 import { unix } from "./time.ts";
+import type { User } from "./user.ts";
 
 export interface CreateChallengeInit {
   clientHints?: string;
@@ -46,13 +40,20 @@ export async function createChallenge(
 ): Promise<CreateChallengeResult> {
   const redis = getRedis();
   const ref = ChallengeRef.create();
+  const key = getChallengeKey(ref.code);
   const exat = unix() + 10 * 60; // 10 minutes
 
-  const res = await redis.set<Challenge>(
-    ref.key,
-    { id: ref.id, clientHints: init.clientHints, status: "pending" },
-    { nx: true, exat },
-  );
+  const challenge: Challenge = {
+    id: ref.id,
+    clientHints: init.clientHints,
+    status: "pending",
+    exat,
+  };
+
+  const res = await redis.set<Challenge>(key, challenge, {
+    nx: true,
+    exat,
+  });
 
   if (!res) {
     throw new ChallengeConflictError("Challenge code already in use");
@@ -60,25 +61,27 @@ export async function createChallenge(
 
   return {
     code: ref.code,
-    token: sealToken(ref, exat),
-    mnemonic: ref.mnemonic,
+    token: ref.getToken(exat),
+    mnemonic: ref.getMnemonic(),
   };
 }
 
 export async function readChallenge(
-  token: string,
+  code: string,
 ): Promise<ReadChallengeResult> {
   const redis = getRedis();
-  const ref = unsealToken(token);
-  const res = await redis.get<Challenge>(ref.key);
+  const key = getChallengeKey(code);
+  const res = await redis.get<Challenge>(key);
 
-  if (!res || res.id !== ref.id || res.status === "passed") {
+  if (!res || res.status === "passed") {
     throw new ChallengeNotFoundError("Challenge not found");
   }
 
+  const ref = new ChallengeRef(res.id);
+
   return {
-    token,
-    mnemonic: ref.mnemonic,
+    token: ref.getToken(res.exat),
+    mnemonic: ref.getMnemonic(),
     clientHints: res.clientHints,
   };
 }
@@ -86,8 +89,9 @@ export async function readChallenge(
 export async function tryConsumeChallenge(
   token: string,
 ): Promise<ConsumeChallengeResult> {
-  const ref = unsealToken(token);
-  const res = await doConsumeChallenge([ref.key], ref.id);
+  const ref = ChallengeRef.fromToken(token);
+  const key = getChallengeKey(ref.code);
+  const res = await doConsumeChallenge([key], ref.id);
 
   if (!res) {
     return { token, status: "pending" };
@@ -104,10 +108,11 @@ export async function passChallenge(
   token: string,
   user: User,
 ): Promise<PassChallengeResult> {
-  const ref = unsealToken(token);
+  const ref = ChallengeRef.fromToken(token);
+  const key = getChallengeKey(ref.code);
 
   try {
-    await doPassChallenge([ref.key], ref.id, JSON.stringify(user));
+    await doPassChallenge([key], ref.id, JSON.stringify(user));
   } catch (err) {
     if (err instanceof Error) {
       if (err.message.includes("NOT_FOUND")) {
@@ -126,10 +131,11 @@ export async function passChallenge(
 }
 
 export async function deleteChallenge(token: string) {
-  const ref = unsealToken(token);
+  const ref = ChallengeRef.fromToken(token);
+  const key = getChallengeKey(ref.code);
 
   try {
-    await doDeleteChallenge([ref.key], ref.id);
+    await doDeleteChallenge([key], ref.id);
   } catch (err) {
     if (err instanceof Error && err.message.includes("NOT_FOUND")) {
       throw new ChallengeNotFoundError("Challenge not found");
@@ -147,10 +153,6 @@ export class ChallengeConflictError extends ConflictError {
   name = "ChallengeConflictError";
 }
 
-export class InvalidChallengeTokenError extends UnauthorizedError {
-  name = "InvalidChallengeTokenError";
-}
-
 // Private
 
 interface BaseConsumeChallengeResult {
@@ -165,33 +167,6 @@ interface PendingConsumeChallengeResult extends BaseConsumeChallengeResult {
 interface SuccesfulConsumeChallengeResult extends BaseConsumeChallengeResult {
   status: "passed";
   user: User;
-}
-
-function sealToken(ref: ChallengeRef, exat: number): string {
-  return sealedValueEx(envHex("SEAL_KEY")).seal(ref.bytes, { exat });
-}
-
-function unsealToken(token: string): ChallengeRef {
-  let payload: Uint8Array;
-
-  try {
-    payload = sealedValueEx(envHex("SEAL_KEY")).unseal(token);
-  } catch (err) {
-    if (
-      err instanceof InvalidSealedValueError ||
-      err instanceof ExpiredSealedValueError
-    ) {
-      throw new InvalidChallengeTokenError(
-        "Challenge token is invalid or expired",
-        { cause: err },
-      );
-    }
-
-    throw err;
-  }
-
-  const id = base64urlnopad.encode(payload);
-  return new ChallengeRef(id);
 }
 
 const doConsumeChallenge = script<(id: string) => User | null>`
