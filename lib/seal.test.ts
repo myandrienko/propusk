@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { envHex } from "./env.ts";
 import {
-  ExpiredError,
+  ExpiredSealedValueError,
   parseExpAt,
   sealedId,
   sealedValue,
@@ -40,7 +40,10 @@ describe("sealedValueExp", () => {
 
   it("throws when expired", () => {
     const sealed = sv.seal(payload, { exat: now });
-    assert.throws(() => sv.unseal(sealed, { now: now + 1 }), ExpiredError);
+    assert.throws(
+      () => sv.unseal(sealed, { now: now + 1 }),
+      ExpiredSealedValueError,
+    );
   });
 
   it("allows expired value within clock tolerance", () => {
@@ -55,7 +58,7 @@ describe("sealedValueExp", () => {
     const sealed = sv.seal(payload, { exat: now });
     assert.throws(
       () => sv.unseal(sealed, { now: now + 6, clockTolerance: 5 }),
-      ExpiredError,
+      ExpiredSealedValueError,
     );
   });
 

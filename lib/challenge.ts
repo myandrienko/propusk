@@ -1,29 +1,50 @@
 import { base64urlnopad } from "@scure/base";
-import * as bip39 from "@scure/bip39";
-import { wordlist } from "@scure/bip39/wordlists/english.js";
-import { customAlphabet, urlAlphabet } from "nanoid";
+import {
+  ChallengeRef,
+  type ChallengeSnapshot,
+  type ChallengeStatus,
+} from "../models/challenge.ts";
+import type { User } from "../models/user.ts";
 import { envHex } from "./env.ts";
 import { getRedis } from "./redis.ts";
-import { createScript } from "./script.ts";
-import { sealedValueEx } from "./seal.ts";
+import { script } from "./script.ts";
+import {
+  ExpiredSealedValueError,
+  InvalidSealedValueError,
+  sealedValueEx,
+} from "./seal.ts";
 import { unix } from "./time.ts";
 
-export interface Challenge {
+export interface CreateChallengeInit {
+  clientHints?: string;
+}
+
+export interface CreateChallengeResult {
   code: string;
   token: string;
   mnemonic: string;
-  status: ChallengeStatus;
 }
 
-export async function createChallenge(): Promise<Challenge> {
-  const redis = getRedis();
-  const { code, id } = generateId();
-  const exat = unix() + 10 * 60; // 10 minutes
-  const status: ChallengeStatus = "pending";
+export interface ReadChallengeResult {
+  token: string;
+  mnemonic: string;
+  clientHints?: string;
+}
 
-  const res = await redis.set<ChallengeRecord>(
-    `challenge:${code}`,
-    { id, status },
+export type ConsumeChallengeResult =
+  | PendingConsumeChallengeResult
+  | SuccesfulConsumeChallengeResult;
+
+export async function createChallenge(
+  init: CreateChallengeInit = {},
+): Promise<CreateChallengeResult> {
+  const redis = getRedis();
+  const ref = ChallengeRef.create();
+  const exat = unix() + 10 * 60; // 10 minutes
+
+  const res = await redis.set<ChallengeSnapshot>(
+    ref.key,
+    { id: ref.id, clientHints: init.clientHints, status: "pending" },
     { nx: true, exat },
   );
 
@@ -31,14 +52,55 @@ export async function createChallenge(): Promise<Challenge> {
     throw new ChallengeConflictError("Challenge code already in use");
   }
 
-  const { token, mnemonic } = generateTokens(id, exat);
-  return { code, token, mnemonic, status };
+  return {
+    code: ref.code,
+    token: sealToken(ref, exat),
+    mnemonic: ref.mnemonic,
+  };
 }
 
-export async function tryConsumeChallenge(token: string) {
-  const { code, id } = parseToken(token);
-  const res = await consumeChallenge([`challenge:${code}`], id);
-  return res;
+export async function readChallenge(
+  token: string,
+): Promise<ReadChallengeResult> {
+  const redis = getRedis();
+  const ref = unsealToken(token);
+  const res = await redis.get<ChallengeSnapshot>(ref.key);
+
+  if (!res || res.id !== ref.id || res.status === "passed") {
+    throw new ChallengeNotFoundError("Challenge not found");
+  }
+
+  return {
+    token,
+    mnemonic: ref.mnemonic,
+    clientHints: res.clientHints,
+  };
+}
+
+export async function tryConsumeChallenge(
+  token: string,
+): Promise<ConsumeChallengeResult> {
+  const ref = unsealToken(token);
+  const res = await consumeChallenge([ref.key], ref.id);
+
+  if (!res) {
+    return { token, status: "pending" };
+  }
+
+  return {
+    token,
+    status: "passed",
+    user: res,
+  };
+}
+
+export async function passChallenge(token: string, user: User) {}
+
+export class ChallengeNotFoundError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ChallengeNotFoundError";
+  }
 }
 
 export class ChallengeConflictError extends Error {
@@ -48,83 +110,70 @@ export class ChallengeConflictError extends Error {
   }
 }
 
+export class InvalidChallengeTokenError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "InvalidChallengeTokenError";
+  }
+}
+
 // Private
 
-interface ChallengeRecord {
-  id: string;
+interface BaseConsumeChallengeResult {
+  token: string;
   status: ChallengeStatus;
 }
 
-type ChallengeStatus = "pending";
-
-const codeLength = 8;
-const generateCode = customAlphabet(
-  "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789",
-  codeLength,
-);
-const generateRandomness = customAlphabet(urlAlphabet, 16);
-
-/**
- * Challenge ID is constructed as a random 8-character alphanumeric code (used
- * for manual entry and lookups) followed by 16 additional random base64url
- * characters.
- */
-function generateId(): {
-  code: string;
-  id: string;
-} {
-  const code = generateCode();
-  const id = `${code}${generateRandomness()}`;
-  return { code, id };
+interface PendingConsumeChallengeResult extends BaseConsumeChallengeResult {
+  status: "pending";
 }
 
-/**
- * Given a challenge ID, decodes it from base64url, then generates
- * the following values:
- * - token: sealed value with an expiration timestamp of `exat`;
- * - mnemonic: human-readable representation of the ID, generated using
- *   the BIP39 algorithm from the first 128 bits of the payload.
- */
-function generateTokens(
-  id: string,
-  exat: number,
-): {
-  token: string;
-  mnemonic: string;
-} {
-  const payload = base64urlnopad.decode(id);
-  const token = sealedValueEx(envHex("SEAL_KEY")).seal(payload, { exat });
-  // Length of entropy for BIP39 must be a multiple of 32 bits:
-  const entropy = payload.slice(0, Math.trunc(payload.length / 4) * 4);
-  const mnemonic = bip39.entropyToMnemonic(entropy, wordlist);
-  return { token, mnemonic };
+interface SuccesfulConsumeChallengeResult extends BaseConsumeChallengeResult {
+  status: "passed";
+  user: User;
 }
 
-function parseToken(token: string): {
-  code: string;
-  id: string;
-} {
-  const payload = sealedValueEx(envHex("SEAL_KEY")).unseal(token);
+function sealToken(ref: ChallengeRef, exat: number): string {
+  return sealedValueEx(envHex("SEAL_KEY")).seal(ref.bytes, { exat });
+}
+
+function unsealToken(token: string): ChallengeRef {
+  let payload: Uint8Array;
+
+  try {
+    payload = sealedValueEx(envHex("SEAL_KEY")).unseal(token);
+  } catch (err) {
+    if (
+      err instanceof InvalidSealedValueError ||
+      err instanceof ExpiredSealedValueError
+    ) {
+      throw new InvalidChallengeTokenError(
+        "Challenge token is invalid or expired",
+      );
+    }
+
+    throw err;
+  }
+
   const id = base64urlnopad.encode(payload);
-  const code = id.slice(0, codeLength);
-  return { code, id };
+  return new ChallengeRef(id);
 }
 
-const consumeChallenge = createScript<(id: string) => 0 | 1>(`
+const consumeChallenge = script<(id: string) => User | null>`
 local data = redis.call('GET', KEYS[1])
 if not data then
-  return {err = 'NOT_FOUND'}
+  return redis.error_reply('NOT_FOUND')
 end
 
 local challenge = cjson.decode(data)
 if challenge.id ~= ARGV[1] then
-  return {err = 'NOT_FOUND'}
+  return redis.error_reply('NOT_FOUND')
 end
 
 if challenge.status ~= 'passed' then
-  return 0
+  return nil
 end
 
 redis.call('DEL', KEYS[1])
-return 1
-`);
+return cjson.encode(challenge.user)
+`;
