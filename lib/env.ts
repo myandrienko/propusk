@@ -4,6 +4,8 @@ interface Env {
   UPSTASH_REDIS_REST_URL?: string;
   UPSTASH_REDIS_REST_TOKEN?: string;
   SEAL_KEY?: string;
+  BOT_TOKEN?: string;
+  BOT_SECRET?: string;
 }
 
 declare global {
