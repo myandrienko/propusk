@@ -1,7 +1,7 @@
 import { base64urlnopad } from "@scure/base";
 import {
   ChallengeRef,
-  type ChallengeSnapshot,
+  type Challenge,
   type ChallengeStatus,
 } from "../models/challenge.ts";
 import type { User } from "../models/user.ts";
@@ -36,6 +36,11 @@ export type ConsumeChallengeResult =
   | PendingConsumeChallengeResult
   | SuccesfulConsumeChallengeResult;
 
+export interface PassChallengeResult {
+  token: string;
+  status: Extract<ChallengeStatus, "passed">;
+}
+
 export async function createChallenge(
   init: CreateChallengeInit = {},
 ): Promise<CreateChallengeResult> {
@@ -43,7 +48,7 @@ export async function createChallenge(
   const ref = ChallengeRef.create();
   const exat = unix() + 10 * 60; // 10 minutes
 
-  const res = await redis.set<ChallengeSnapshot>(
+  const res = await redis.set<Challenge>(
     ref.key,
     { id: ref.id, clientHints: init.clientHints, status: "pending" },
     { nx: true, exat },
@@ -65,7 +70,7 @@ export async function readChallenge(
 ): Promise<ReadChallengeResult> {
   const redis = getRedis();
   const ref = unsealToken(token);
-  const res = await redis.get<ChallengeSnapshot>(ref.key);
+  const res = await redis.get<Challenge>(ref.key);
 
   if (!res || res.id !== ref.id || res.status === "passed") {
     throw new ChallengeNotFoundError("Challenge not found");
@@ -82,7 +87,7 @@ export async function tryConsumeChallenge(
   token: string,
 ): Promise<ConsumeChallengeResult> {
   const ref = unsealToken(token);
-  const res = await consumeChallenge([ref.key], ref.id);
+  const res = await doConsumeChallenge([ref.key], ref.id);
 
   if (!res) {
     return { token, status: "pending" };
@@ -95,7 +100,44 @@ export async function tryConsumeChallenge(
   };
 }
 
-export async function passChallenge(token: string, user: User) {}
+export async function passChallenge(
+  token: string,
+  user: User,
+): Promise<PassChallengeResult> {
+  const ref = unsealToken(token);
+
+  try {
+    await doPassChallenge([ref.key], ref.id, JSON.stringify(user));
+  } catch (err) {
+    if (err instanceof Error) {
+      if (err.message.includes("NOT_FOUND")) {
+        throw new ChallengeNotFoundError("Challenge not found");
+      }
+
+      if (err.message.includes("CONFLICT")) {
+        throw new ChallengeConflictError("Challenge already passed");
+      }
+    }
+
+    throw err;
+  }
+
+  return { token, status: "passed" };
+}
+
+export async function deleteChallenge(token: string) {
+  const ref = unsealToken(token);
+
+  try {
+    await doDeleteChallenge([ref.key], ref.id);
+  } catch (err) {
+    if (err instanceof Error && err.message.includes("NOT_FOUND")) {
+      throw new ChallengeNotFoundError("Challenge not found");
+    }
+
+    throw err;
+  }
+}
 
 export class ChallengeNotFoundError extends NotFoundError {
   name = "ChallengeNotFoundError";
@@ -152,7 +194,7 @@ function unsealToken(token: string): ChallengeRef {
   return new ChallengeRef(id);
 }
 
-const consumeChallenge = script<(id: string) => User | null>`
+const doConsumeChallenge = script<(id: string) => User | null>`
 local data = redis.call('GET', KEYS[1])
 if not data then
   return redis.error_reply('NOT_FOUND')
@@ -169,4 +211,41 @@ end
 
 redis.call('DEL', KEYS[1])
 return cjson.encode(challenge.user)
+`;
+
+const doPassChallenge = script<(id: string, user: string) => "OK">`
+local data = redis.call('GET', KEYS[1])
+if not data then
+  return redis.error_reply('NOT_FOUND')
+end
+
+local challenge = cjson.decode(data)
+if challenge.id ~= ARGV[1] then
+  return redis.error_reply('NOT_FOUND')
+end
+
+if challenge.status ~= 'pending' then
+  return redis.error_reply('CONFLICT')
+end
+
+challenge.status = 'passed'
+challenge.user = cjson.decode(ARGV[2])
+
+redis.call('SET', KEYS[1], cjson.encode(challenge), 'KEEPTTL')
+return redis.status_reply('OK')
+`;
+
+const doDeleteChallenge = script<(id: string) => "OK">`
+local data = redis.call('GET', KEYS[1])
+if not data then
+  return redis.error_reply('NOT_FOUND')
+end
+
+local challenge = cjson.decode(data)
+if challenge.id ~= ARGV[1] then
+  return redis.error_reply('NOT_FOUND')
+end
+
+redis.call('DEL', KEYS[1])
+return redis.status_reply('OK')
 `;

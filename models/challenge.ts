@@ -4,9 +4,7 @@ import * as bip39 from "@scure/bip39";
 import { wordlist } from "@scure/bip39/wordlists/english.js";
 import type { User } from "./user";
 
-export type ChallengeSnapshot =
-  | PendingChallengeSnapshot
-  | PassedChallengeSnapshot;
+export type Challenge = PendingChallenge | PassedChallenge;
 
 export type ChallengeStatus = "pending" | "passed";
 
@@ -62,11 +60,11 @@ interface BaseChallengeSnapshot {
   status: ChallengeStatus;
 }
 
-interface PendingChallengeSnapshot extends BaseChallengeSnapshot {
+interface PendingChallenge extends BaseChallengeSnapshot {
   status: "pending";
 }
 
-interface PassedChallengeSnapshot extends BaseChallengeSnapshot {
+interface PassedChallenge extends BaseChallengeSnapshot {
   status: "passed";
   user: User;
 }

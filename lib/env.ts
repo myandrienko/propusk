@@ -1,4 +1,4 @@
-import { base16 } from "@scure/base";
+import { hex } from "@scure/base";
 
 interface Env {
   UPSTASH_REDIS_REST_URL?: string;
@@ -26,7 +26,7 @@ export function envHex(key: keyof Env): Uint8Array {
   const str = env(key);
 
   try {
-    return base16.decode(str);
+    return hex.decode(str);
   } catch {
     throw new Error(`Environment variable "${key}" is not a hex string`);
   }
