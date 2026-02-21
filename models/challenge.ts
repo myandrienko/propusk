@@ -2,14 +2,14 @@ import { base64urlnopad } from "@scure/base";
 import * as bip39 from "@scure/bip39";
 import { wordlist } from "@scure/bip39/wordlists/english.js";
 import { customAlphabet, urlAlphabet } from "nanoid";
-import { envHex } from "../lib/env.ts";
+import { env } from "../lib/env.ts";
 import { UnauthorizedError } from "../lib/errors.ts";
 import {
   ExpiredSealedValueError,
   InvalidSealedValueError,
   sealedValueEx,
 } from "../lib/seal.ts";
-import type { User } from "./user";
+import type { User } from "./user.ts";
 
 export type Challenge = PendingChallenge | PassedChallenge;
 export type ChallengeStatus = "pending" | "passed";
@@ -30,7 +30,7 @@ export class ChallengeRef {
     let payload: Uint8Array;
 
     try {
-      payload = sealedValueEx(envHex("SEAL_KEY")).unseal(token);
+      payload = sealedValueEx(env.SEAL_KEY.hex()).unseal(token);
     } catch (err) {
       if (
         err instanceof InvalidSealedValueError ||
@@ -55,7 +55,7 @@ export class ChallengeRef {
   }
 
   getToken(exat: number): string {
-    return sealedValueEx(envHex("SEAL_KEY")).seal(this.bytes, { exat });
+    return sealedValueEx(env.SEAL_KEY.hex()).seal(this.bytes, { exat });
   }
 
   getMnemonic() {

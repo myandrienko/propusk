@@ -3,12 +3,12 @@ import {
   getChallengeKey,
   type Challenge,
   type ChallengeStatus,
-} from "./cref.ts";
+} from "../models/challenge.ts";
+import type { User } from "../models/user.ts";
 import { ConflictError, NotFoundError } from "./errors.ts";
 import { getRedis } from "./redis.ts";
 import { script } from "./script.ts";
 import { unix } from "./time.ts";
-import type { User } from "./user.ts";
 
 export interface CreateChallengeInit {
   clientHints?: string;
