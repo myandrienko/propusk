@@ -1,9 +1,15 @@
-import type {
-  TelegramCallbackQuery,
-  TelegramMaybeInaccessibleMessage,
-  TelegramMessage,
-  TelegramUpdate,
-} from "wrappergram";
+import type { TelegramUpdate } from "wrappergram";
+import { hostUserPhoto } from "../lib/photos.ts";
+import * as templates from "../lib/templates.ts";
+import { getTg } from "../lib/tg.ts";
+import { UserRef, type User } from "../models/user.ts";
+import {
+  isChallengeCodeUpdate,
+  isPromptResponseUpdate,
+  type ChallengeCodeUpdate,
+  type PromptResponseCallbackQuery,
+  type PromptResponseUpdate,
+} from "../models/webhook.ts";
 import {
   ChallengeConflictError,
   ChallengeNotFoundError,
@@ -12,11 +18,6 @@ import {
   readChallenge,
   type ReadChallengeResult,
 } from "./challenge.ts";
-import { isValidChallengeCode } from "../models/challenge.ts";
-import { hostUserPhoto } from "./photos.ts";
-import * as templates from "./templates.ts";
-import { getTg } from "./tg.ts";
-import { UserRef, type User } from "../models/user.ts";
 
 export async function handleTgUpdate(update: TelegramUpdate): Promise<boolean> {
   const tg = getTg();
@@ -49,50 +50,6 @@ export async function handleTgUpdate(update: TelegramUpdate): Promise<boolean> {
 }
 
 // Private
-
-interface ChallengeCodeUpdate extends TelegramUpdate {
-  message: ChallengeCodeMessage;
-}
-
-interface ChallengeCodeMessage extends TelegramMessage {
-  text: string;
-}
-
-interface PromptResponseUpdate extends TelegramUpdate {
-  callback_query: PromptResponseCallbackQuery;
-}
-
-interface PromptResponseCallbackQuery extends TelegramCallbackQuery {
-  data: string;
-  message: TelegramMaybeInaccessibleMessage;
-}
-
-function isChallengeCodeUpdate(
-  update: TelegramUpdate,
-): update is ChallengeCodeUpdate {
-  if (!update.message?.text) {
-    return false;
-  }
-
-  const text = update.message.text.trim();
-  update.message.text = text; // dirty, but useful sideeffect
-  return isValidChallengeCode(text);
-}
-
-function isPromptResponseUpdate(
-  update: TelegramUpdate,
-): update is PromptResponseUpdate {
-  if (!update.callback_query) {
-    return false;
-  }
-
-  const cq = update.callback_query;
-  return (
-    cq.data !== undefined &&
-    (cq.data.startsWith("y:") || cq.data.startsWith("n:")) &&
-    cq.message !== undefined
-  );
-}
 
 async function handleChallengeCode(update: ChallengeCodeUpdate): Promise<void> {
   const tg = getTg();

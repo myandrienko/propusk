@@ -1,6 +1,6 @@
 import type { TelegramUpdate } from "wrappergram";
 import { NextResponse, type NextRequest } from "next/server";
-import { handleTgUpdate } from "../../../lib/bot.ts";
+import { handleTgUpdate } from "../../../services/bot.ts";
 import { env } from "../../../lib/env.ts";
 
 export async function POST(request: NextRequest): Promise<Response> {

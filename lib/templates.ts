@@ -1,6 +1,6 @@
 import { bold, code, format, italic } from "@gramio/format";
 import type { TelegramMessageEntity } from "wrappergram";
-import type { ReadChallengeResult } from "./challenge.ts";
+import type { ReadChallengeResult } from "../services/challenge.ts";
 import { InlineKeyboard } from "@gramio/keyboards";
 
 export interface MessageTemplate {

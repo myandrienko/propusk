@@ -5,10 +5,10 @@ import {
   type ChallengeStatus,
 } from "../models/challenge.ts";
 import type { User } from "../models/user.ts";
-import { ConflictError, NotFoundError } from "./errors.ts";
-import { getRedis } from "./redis.ts";
-import { script } from "./script.ts";
-import { unix } from "./time.ts";
+import { ConflictError, NotFoundError } from "../lib/errors.ts";
+import { getRedis } from "../lib/redis.ts";
+import { script } from "../lib/script.ts";
+import { unix } from "../lib/time.ts";
 
 export interface CreateChallengeInit {
   clientHints?: string;
