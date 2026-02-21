@@ -5,7 +5,7 @@ let tg: Telegram | undefined;
 
 export function getTg(): Telegram {
   if (!tg) {
-    tg = new Telegram(env("BOT_TOKEN"));
+    tg = new Telegram(env.BOT_TOKEN());
   }
 
   return tg;

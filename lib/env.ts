@@ -1,11 +1,25 @@
 import { hex } from "@scure/base";
 
+export type SafeEnv = {
+  [K in keyof Env]-?: SafeEnvValue;
+};
+
+export interface SafeEnvValue {
+  (fallback?: string): string;
+  hex(fallback?: string): Uint8Array;
+}
+
+export const env = createSafeEnv();
+
+// Private
+
 interface Env {
   UPSTASH_REDIS_REST_URL?: string;
   UPSTASH_REDIS_REST_TOKEN?: string;
   SEAL_KEY?: string;
   BOT_TOKEN?: string;
   BOT_SECRET?: string;
+  BLOB_READ_WRITE_TOKEN?: string;
 }
 
 declare global {
@@ -14,22 +28,34 @@ declare global {
   }
 }
 
-export function env(key: keyof Env): string {
-  const value = process.env[key];
+function createSafeEnv(): SafeEnv {
+  return new Proxy(process.env, {
+    get(target, key): SafeEnvValue {
+      if (typeof key !== "string") {
+        throw new Error("Invalid environment variable key");
+      }
 
-  if (!value) {
-    throw new Error(`Missing environment variable: "${key}"`);
-  }
+      const getSafeEnvValue = (fallback?: string) => {
+        const value = Reflect.get(target, key) ?? fallback;
 
-  return value;
-}
+        if (!value) {
+          throw new Error(`Missing environment variable: "${key}"`);
+        }
 
-export function envHex(key: keyof Env): Uint8Array {
-  const str = env(key);
+        return value;
+      };
 
-  try {
-    return hex.decode(str);
-  } catch {
-    throw new Error(`Environment variable "${key}" is not a hex string`);
-  }
+      getSafeEnvValue.hex = (fallback?: string) => {
+        const str = getSafeEnvValue(fallback);
+
+        try {
+          return hex.decode(str);
+        } catch {
+          throw new Error(`Environment variable "${key}" is not a hex string`);
+        }
+      };
+
+      return getSafeEnvValue;
+    },
+  }) as unknown as SafeEnv;
 }

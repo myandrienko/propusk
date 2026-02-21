@@ -14,7 +14,7 @@ const webhook = `${url}/api/bot`;
 
 const response = await getTg().api.setWebhook({
   url: webhook,
-  secret_token: env("BOT_SECRET"),
+  secret_token: env.BOT_SECRET(),
 });
 
 if (!response.ok) {

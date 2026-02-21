@@ -1,16 +1,15 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { envHex } from "./env.ts";
 import {
   ExpiredSealedValueError,
-  parseExat,
   sealedId,
   sealedValue,
   sealedValueEx,
 } from "./seal.ts";
 import { unix } from "./time.ts";
+import { env } from "./env.ts";
 
-const key = envHex("SEAL_KEY");
+const key = env.SEAL_KEY.hex();
 const payload = new TextEncoder().encode("hello");
 
 describe("sealedValue", () => {
