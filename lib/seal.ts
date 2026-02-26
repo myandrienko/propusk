@@ -1,7 +1,8 @@
-import { base64urlnopad } from "@scure/base";
-import { env } from "./env.ts";
 import { gcmsiv } from "@noble/ciphers/aes.js";
 import { concatBytes, createView } from "@noble/ciphers/utils.js";
+import { base64urlnopad } from "@scure/base";
+import { env } from "./env.ts";
+import { UnauthorizedError } from "./errors.ts";
 import { unix } from "./time.ts";
 import { etry } from "./try.ts";
 
@@ -32,7 +33,7 @@ export class Sealable {
       const exat = createView(sealedBytes).getUint32(0);
 
       if (exat + (options.clockTolerance ?? 0) < (options.now ?? unix())) {
-        throw new ExpiredSealedValueError("Sealed value expired");
+        throw new InvalidSealedValueError("Sealed value expired");
       }
 
       nonce.set(sealedBytes.subarray(0, 4));
@@ -84,12 +85,8 @@ export class UnsealableValueError extends Error {
   name = "UnsealableValueError";
 }
 
-export class InvalidSealedValueError extends Error {
+export class InvalidSealedValueError extends UnauthorizedError {
   name = "InvalidSealedValueError";
-}
-
-export class ExpiredSealedValueError extends Error {
-  name = "ExpiredSealedValueError";
 }
 
 // Private

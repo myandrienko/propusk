@@ -2,14 +2,9 @@ import * as bip39 from "@scure/bip39";
 import { wordlist } from "@scure/bip39/wordlists/english.js";
 import { customAlphabet, urlAlphabet } from "nanoid";
 import { UnauthorizedError } from "../lib/errors.ts";
-import {
-  ExpiredSealedValueError,
-  InvalidSealedValueError,
-  Sealable,
-  type SealableExpirationOptions,
-} from "../lib/seal.ts";
+import { Sealable, type SealableExpirationOptions } from "../lib/seal.ts";
 import type { User } from "./user.ts";
-import { etry } from "../lib/try.ts";
+import { codec } from "../lib/codec.ts";
 
 export type Challenge = PendingChallenge | PassedChallenge;
 export type ChallengeStatus = "pending" | "passed";
@@ -23,43 +18,33 @@ export interface PassedChallenge extends BaseChallenge {
   user: User;
 }
 
-export const codeLength = 8;
-
 export class ChallengeRef {
   readonly code: string;
 
   #payload: Sealable;
 
-  static create(): ChallengeRef {
-    return new ChallengeRef(generateId());
+  /**
+   * Challenge ID is constructed as a random 8-character alphanumeric code (used
+   * for manual entry and lookups) followed by 16 additional random base64url
+   * characters.
+   */
+  static provision(): string {
+    const code = generateCode();
+    const randomness = generateRandomness();
+    return `${code}${randomness}`;
   }
 
-  protected static fromToken(token: string): ChallengeRef {
-    const payload = etry(() =>
-      Sealable.fromSealed(token, { expires: true }),
-    ).catch((err) => {
-      if (
-        err instanceof InvalidSealedValueError ||
-        err instanceof ExpiredSealedValueError
-      ) {
-        return new InvalidChallengeTokenError(
-          "Challenge token invalid or expired",
-          { cause: err },
-        );
-      }
-    });
-
+  static fromToken(token: string): ChallengeRef {
+    const payload = Sealable.fromSealed(token, { expires: true });
     return new ChallengeRef(payload);
   }
 
   constructor(...args: [id: string] | [payload: Sealable]) {
-    const [id, payload] =
-      typeof args[0] === "string"
-        ? [args[0], new Sealable(args[0])]
-        : [args[0].value, args[0]];
+    [this.code, this.#payload] = codec([codeLength], ...args);
+  }
 
-    this.#payload = payload;
-    this.code = id.slice(0, codeLength);
+  get id() {
+    return this.#payload.value;
   }
 
   getToken(options: Required<SealableExpirationOptions>) {
@@ -97,18 +82,8 @@ interface BaseChallenge {
   exat: number;
 }
 
+const codeLength = 8;
 const alphanumAlphabet =
   "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
 const generateCode = customAlphabet(alphanumAlphabet, codeLength);
 const generateRandomness = customAlphabet(urlAlphabet, 16);
-
-/**
- * Challenge ID is constructed as a random 8-character alphanumeric code (used
- * for manual entry and lookups) followed by 16 additional random base64url
- * characters.
- */
-function generateId(): string {
-  const code = generateCode();
-  const randomness = generateRandomness();
-  return `${code}${randomness}`;
-}
