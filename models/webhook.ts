@@ -31,7 +31,7 @@ export function isChallengeCodeUpdate(
   }
 
   const text = update.message.text.trim();
-  update.message.text = text; // dirty, but useful sideeffect
+  update.message.text = text; // dirty, but useful side effect
   return isValidChallengeCode(text);
 }
 
