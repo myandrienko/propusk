@@ -18,23 +18,23 @@ export function script<T extends (...args: string[]) => unknown>(
 // Private
 
 class CachedScript<T extends (...args: string[]) => unknown> {
-  private src: string;
-  private sha: string | undefined;
+  #src: string;
+  #sha: string | undefined;
 
   constructor(src: string) {
-    this.src = src;
+    this.#src = src;
   }
 
   async exec(keys: string[], ...args: Parameters<T>): Promise<ReturnType<T>> {
     const redis = getRedis();
-    const sha = this.digest();
+    const sha = this.#digest();
 
     try {
       return await redis.evalsha<Parameters<T>, ReturnType<T>>(sha, keys, args);
     } catch (err) {
       if (err instanceof Error && err.message.includes("NOSCRIPT")) {
         return await redis.eval<Parameters<T>, ReturnType<T>>(
-          this.src,
+          this.#src,
           keys,
           args,
         );
@@ -44,12 +44,12 @@ class CachedScript<T extends (...args: string[]) => unknown> {
     }
   }
 
-  private digest() {
-    if (!this.sha) {
-      const bytes = new TextEncoder().encode(this.src);
-      this.sha = hex.encode(sha1(bytes));
+  #digest() {
+    if (!this.#sha) {
+      const bytes = new TextEncoder().encode(this.#src);
+      this.#sha = hex.encode(sha1(bytes));
     }
 
-    return this.sha;
+    return this.#sha;
   }
 }
