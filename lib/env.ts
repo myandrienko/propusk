@@ -1,12 +1,13 @@
 import { hex } from "@scure/base";
+import { etry } from "./try.ts";
 
 export type SafeEnv = {
   [K in keyof Env]-?: SafeEnvValue;
 };
 
 export interface SafeEnvValue {
-  (fallback?: string): string;
-  hex(fallback?: string): Uint8Array;
+  (): string;
+  hex(size?: number): Uint8Array;
 }
 
 export const env = createSafeEnv();
@@ -35,8 +36,8 @@ function createSafeEnv(): SafeEnv {
         throw new Error("Invalid environment variable key");
       }
 
-      const getSafeEnvValue = (fallback?: string) => {
-        const value = Reflect.get(target, key) ?? fallback;
+      const getSafeEnvValue = () => {
+        const value = Reflect.get(target, key);
 
         if (!value) {
           throw new Error(`Missing environment variable: "${key}"`);
@@ -45,14 +46,17 @@ function createSafeEnv(): SafeEnv {
         return value;
       };
 
-      getSafeEnvValue.hex = (fallback?: string) => {
-        const str = getSafeEnvValue(fallback);
+      getSafeEnvValue.hex = (size?: number) => {
+        const str = getSafeEnvValue();
+        const bytes = etry(() => hex.decode(str)).catch(
+          () => new Error(`Environment variable "${key}" is not a hex string`),
+        );
 
-        try {
-          return hex.decode(str);
-        } catch {
-          throw new Error(`Environment variable "${key}" is not a hex string`);
+        if (typeof size === "number" && bytes.length !== size) {
+          throw new Error("Key must have length 32");
         }
+
+        return bytes;
       };
 
       return getSafeEnvValue;

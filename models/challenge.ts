@@ -1,76 +1,77 @@
-import { base64urlnopad } from "@scure/base";
 import * as bip39 from "@scure/bip39";
 import { wordlist } from "@scure/bip39/wordlists/english.js";
 import { customAlphabet, urlAlphabet } from "nanoid";
-import { env } from "../lib/env.ts";
 import { UnauthorizedError } from "../lib/errors.ts";
 import {
   ExpiredSealedValueError,
   InvalidSealedValueError,
-  sealedValueEx,
+  Sealable,
+  type SealableExpirationOptions,
 } from "../lib/seal.ts";
 import type { User } from "./user.ts";
+import { etry } from "../lib/try.ts";
 
 export type Challenge = PendingChallenge | PassedChallenge;
 export type ChallengeStatus = "pending" | "passed";
 
+export interface PendingChallenge extends BaseChallenge {
+  status: "pending";
+}
+
+export interface PassedChallenge extends BaseChallenge {
+  status: "passed";
+  user: User;
+}
+
 export const codeLength = 8;
 
 export class ChallengeRef {
-  readonly id: string;
   readonly code: string;
 
-  #bytes: Uint8Array | undefined;
+  #payload: Sealable;
 
   static create(): ChallengeRef {
     return new ChallengeRef(generateId());
   }
 
-  static fromToken(token: string): ChallengeRef {
-    let payload: Uint8Array;
-
-    try {
-      payload = sealedValueEx(env.SEAL_KEY.hex()).unseal(token);
-    } catch (err) {
+  protected static fromToken(token: string): ChallengeRef {
+    const payload = etry(() =>
+      Sealable.fromSealed(token, { expires: true }),
+    ).catch((err) => {
       if (
         err instanceof InvalidSealedValueError ||
         err instanceof ExpiredSealedValueError
       ) {
-        throw new InvalidChallengeTokenError(
-          "Challenge token is invalid or expired",
+        return new InvalidChallengeTokenError(
+          "Challenge token invalid or expired",
           { cause: err },
         );
       }
+    });
 
-      throw err;
-    }
-
-    const id = base64urlnopad.encode(payload);
-    return new ChallengeRef(id);
+    return new ChallengeRef(payload);
   }
 
-  constructor(id: string) {
-    this.id = id;
+  constructor(...args: [id: string] | [payload: Sealable]) {
+    const [id, payload] =
+      typeof args[0] === "string"
+        ? [args[0], new Sealable(args[0])]
+        : [args[0].value, args[0]];
+
+    this.#payload = payload;
     this.code = id.slice(0, codeLength);
   }
 
-  getToken(exat: number): string {
-    return sealedValueEx(env.SEAL_KEY.hex()).seal(this.bytes, { exat });
+  getToken(options: Required<SealableExpirationOptions>) {
+    return this.#payload.seal(options);
   }
 
   getMnemonic() {
+    const bytes = this.#payload.asBytes();
     // Length of entropy for BIP39 must be a multiple of 32 bits:
-    const entropyLength = Math.trunc(this.bytes.length / 4) * 4;
-    const entropy = this.bytes.slice(0, entropyLength);
+    const entropyLength = Math.trunc(bytes.length / 4) * 4;
+    const entropy = bytes.slice(0, entropyLength);
     return bip39.entropyToMnemonic(entropy, wordlist);
-  }
-
-  private get bytes(): Uint8Array {
-    if (!this.#bytes) {
-      this.#bytes = base64urlnopad.decode(this.id);
-    }
-
-    return this.#bytes;
   }
 }
 
@@ -94,15 +95,6 @@ interface BaseChallenge {
   clientHints?: string;
   status: ChallengeStatus;
   exat: number;
-}
-
-interface PendingChallenge extends BaseChallenge {
-  status: "pending";
-}
-
-interface PassedChallenge extends BaseChallenge {
-  status: "passed";
-  user: User;
 }
 
 const alphanumAlphabet =

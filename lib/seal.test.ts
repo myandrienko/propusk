@@ -1,72 +1,63 @@
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
-import {
-  ExpiredSealedValueError,
-  sealedId,
-  sealedValue,
-  sealedValueEx,
-} from "./seal.ts";
+import { it } from "node:test";
 import { unix } from "./time.ts";
-import { env } from "./env.ts";
+import { ExpiredSealedValueError, Sealable } from "./seal.ts";
+import { nanoid } from "nanoid";
 
-const key = env.SEAL_KEY.hex();
-const payload = new TextEncoder().encode("hello");
+const payload = nanoid(24);
+const now = unix();
 
-describe("sealedValue", () => {
-  it("seals and unseals", () => {
-    const sv = sealedValue(key);
-    const sealed = sv.seal(payload);
-    assert.equal(typeof sealed, "string");
-    assert.deepEqual(sv.unseal(sealed), payload);
-  });
+it("seals and unseals", () => {
+  const sealed = new Sealable(payload).seal();
+  assert.equal(typeof sealed, "string");
+  assert.deepEqual(Sealable.fromSealed(sealed).value, payload);
 });
 
-describe("sealedValueExp", () => {
-  const sv = sealedValueEx(key);
-  const now = unix();
-
-  it("seals with exp and unseals", () => {
-    const sealed = sv.seal(payload, { ex: 60, now });
-    assert.equal(typeof sealed, "string");
-    assert.deepEqual(sv.unseal(sealed, { now }), payload);
-  });
-
-  it("seals with expAt and unseals", () => {
-    const sealed = sv.seal(payload, { exat: now + 60 });
-    assert.equal(typeof sealed, "string");
-    assert.deepEqual(sv.unseal(sealed, { now }), payload);
-  });
-
-  it("throws when expired", () => {
-    const sealed = sv.seal(payload, { exat: now });
-    assert.throws(
-      () => sv.unseal(sealed, { now: now + 1 }),
-      ExpiredSealedValueError,
-    );
-  });
-
-  it("allows expired value within clock tolerance", () => {
-    const sealed = sv.seal(payload, { exat: now });
-    assert.deepEqual(
-      sv.unseal(sealed, { now: now + 5, clockTolerance: 5 }),
-      payload,
-    );
-  });
-
-  it("throws when expired beyond clock tolerance", () => {
-    const sealed = sv.seal(payload, { exat: now });
-    assert.throws(
-      () => sv.unseal(sealed, { now: now + 6, clockTolerance: 5 }),
-      ExpiredSealedValueError,
-    );
-  });
+it("seals with expiration and unseals", () => {
+  const sealed = new Sealable(payload).seal({ exat: now + 60 });
+  assert.equal(typeof sealed, "string");
+  assert.deepEqual(
+    Sealable.fromSealed(sealed, { expires: true, now }).value,
+    payload,
+  );
 });
 
-describe("sealedId", () => {
-  it("seals and unseals", () => {
-    const sv = sealedId(key);
-    const sealed = sv.seal(payload);
-    assert.equal(typeof sealed, "string");
-    assert.deepEqual(sv.unseal(sealed), payload);
-  });
+it("throws when expired", () => {
+  const sealed = new Sealable(payload).seal({ exat: now });
+  assert.equal(typeof sealed, "string");
+  assert.throws(
+    () =>
+      Sealable.fromSealed(sealed, {
+        expires: true,
+        now: now + 1,
+      }).value,
+    ExpiredSealedValueError,
+  );
+});
+
+it("allows expired value within clock tolerance", () => {
+  const sealed = new Sealable(payload).seal({ exat: now });
+  assert.equal(typeof sealed, "string");
+  assert.deepEqual(
+    Sealable.fromSealed(sealed, {
+      expires: true,
+      now: now + 5,
+      clockTolerance: 5,
+    }).value,
+    payload,
+  );
+});
+
+it("throws when expired beyond clock tolerance", () => {
+  const sealed = new Sealable(payload).seal({ exat: now });
+  assert.equal(typeof sealed, "string");
+  assert.throws(
+    () =>
+      Sealable.fromSealed(sealed, {
+        expires: true,
+        now: now + 6,
+        clockTolerance: 5,
+      }).value,
+    ExpiredSealedValueError,
+  );
 });

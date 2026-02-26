@@ -1,129 +1,99 @@
-import { gcmsiv } from "@noble/ciphers/aes.js";
-import { concatBytes, createView, randomBytes } from "@noble/ciphers/utils.js";
 import { base64urlnopad } from "@scure/base";
-import { UnauthorizedError } from "./errors.ts";
+import { env } from "./env.ts";
+import { gcmsiv } from "@noble/ciphers/aes.js";
+import { concatBytes, createView } from "@noble/ciphers/utils.js";
 import { unix } from "./time.ts";
+import { etry } from "./try.ts";
 
-export type ExpirationOptions = { now?: number } & (
-  | { ex: number }
-  | { exat: number }
-);
+export type SealableExpirationCheckOptions =
+  | { expires?: false }
+  | { expires: true; clockTolerance?: number; now?: number };
 
-export interface ExpirationCheckOptions {
-  now?: number;
-  clockTolerance?: number;
+export interface SealableExpirationOptions {
+  exat?: number;
 }
 
-/**
- * Symmetrically encrypted authenticated value, represented with
- * a base64url-encoded token.
- */
-export const sealedValue = withStrategy({
-  nonce: () => [randomBytes(gcmsiv.nonceLength), true],
-  parse: (ct: Uint8Array) => [
-    ct.subarray(0, gcmsiv.nonceLength),
-    ct.subarray(gcmsiv.nonceLength),
-  ],
-});
+export class Sealable {
+  readonly value: string;
+  readonly asBytes: () => Uint8Array;
 
-/**
- * Symmetrically encrypted authenticated value, represented with
- * a base64url-encoded token, with a specified expiration timestamp.
- */
-export const sealedValueEx = withStrategy({
-  nonce: (options: ExpirationOptions) => {
-    const maxUint32 = 0xffff_ffff;
-    const exat =
-      "ex" in options ? (options.now ?? unix()) + options.ex : options.exat;
+  static fromSealed(
+    sealed: string,
+    options: SealableExpirationCheckOptions = {},
+  ): Sealable {
+    const sealedBytes = etry(() => base64urlnopad.decode(sealed)).catch(
+      () => new InvalidSealedValueError("Sealed value is malformed"),
+    );
 
-    if (exat < 0 || exat > maxUint32) {
-      throw new Error(
-        `Expiration timestamp must be between 0 and ${maxUint32}`,
-      );
+    let nonce = new Uint8Array(gcmsiv.nonceLength);
+    let ct = sealedBytes;
+
+    if (options.expires) {
+      const exat = createView(sealedBytes).getUint32(0);
+
+      if (exat + (options.clockTolerance ?? 0) < (options.now ?? unix())) {
+        throw new ExpiredSealedValueError("Sealed value expired");
+      }
+
+      nonce.set(sealedBytes.subarray(0, 4));
+      ct = sealedBytes.subarray(4);
     }
 
-    const nonce = randomBytes(gcmsiv.nonceLength);
-    const view = createView(nonce);
-    view.setUint32(0, exat);
-    return [nonce, true];
-  },
+    const key = getSealKey();
+    const bytes = etry(() => gcmsiv(key, nonce).decrypt(ct)).catch(
+      () => new InvalidSealedValueError("Sealed value is invalid"),
+    );
 
-  parse: (ct: Uint8Array, options: ExpirationCheckOptions = {}) => {
-    const nonce = ct.subarray(0, gcmsiv.nonceLength);
-    const view = createView(nonce);
-    const exat = view.getUint32(0);
+    return new Sealable(base64urlnopad.encode(bytes), bytes);
+  }
 
-    if (exat + (options.clockTolerance ?? 0) < (options.now ?? unix())) {
-      throw new ExpiredSealedValueError("Sealed value expired");
+  constructor(value: string, precomputedBytes?: Uint8Array) {
+    this.value = value;
+    let bytes = precomputedBytes;
+    this.asBytes = () => bytes ?? (bytes = base64urlnopad.decode(value));
+  }
+
+  seal(options: SealableExpirationOptions = {}): string {
+    const nonce = new Uint8Array(gcmsiv.nonceLength);
+
+    if (options.exat) {
+      const maxUint32 = 0xffff_ffff;
+
+      if (options.exat < 0 || options.exat > maxUint32) {
+        throw new Error(
+          `Expiration timestamp must be between 0 and ${maxUint32}`,
+        );
+      }
+
+      createView(nonce).setUint32(0, options.exat);
     }
 
-    return [nonce, ct.subarray(gcmsiv.nonceLength)];
-  },
-});
+    const ct = gcmsiv(getSealKey(), nonce).encrypt(
+      etry(() => this.asBytes()).catch(
+        () => new UnsealableValueError("Invalid sealable value format"),
+      ),
+    );
+    const sealedBytes = options.exat
+      ? concatBytes(nonce.subarray(0, 4), ct)
+      : ct;
+    return base64urlnopad.encode(sealedBytes);
+  }
+}
 
-/**
- * Symmetrically and deterministically encrypted authenticated value,
- * represented with a base64url-encoded token. Equal payloads produce equal
- * tokens, which makes it useful for obfuscating IDs.
- */
-export const sealedId = withStrategy({
-  nonce: () => [new Uint8Array(gcmsiv.nonceLength), false],
-  parse: (ct: Uint8Array) => [new Uint8Array(gcmsiv.nonceLength), ct],
-});
+export class UnsealableValueError extends Error {
+  name = "UnsealableValueError";
+}
 
-export class InvalidSealedValueError extends UnauthorizedError {
+export class InvalidSealedValueError extends Error {
   name = "InvalidSealedValueError";
 }
 
-export class ExpiredSealedValueError extends UnauthorizedError {
+export class ExpiredSealedValueError extends Error {
   name = "ExpiredSealedValueError";
 }
 
 // Private
 
-interface SealingStrategy<S extends unknown[], U extends unknown[]> {
-  nonce: (...args: S) => [nonce: Uint8Array, shouldPrepend: boolean];
-  parse: (bytes: Uint8Array, ...args: U) => [nonce: Uint8Array, ct: Uint8Array];
-}
-
-interface SealedValue<S extends unknown[], U extends unknown[]> {
-  seal(payload: Uint8Array, ...args: S): string;
-  unseal(sealed: string, ...args: U): Uint8Array;
-}
-
-function withStrategy<S extends unknown[], U extends unknown[]>(
-  s: SealingStrategy<S, U>,
-) {
-  return (key: Uint8Array): SealedValue<S, U> => {
-    if (key.length !== 32) {
-      throw new Error("Key must have length 32");
-    }
-
-    return {
-      seal(payload, ...args) {
-        const [nonce, shouldPrepend] = s.nonce(...args);
-        const ct = gcmsiv(key, nonce).encrypt(payload);
-        const bytes = shouldPrepend ? concatBytes(nonce, ct) : ct;
-        return base64urlnopad.encode(bytes);
-      },
-
-      unseal(sealed, ...args) {
-        let bytes: Uint8Array;
-
-        try {
-          bytes = base64urlnopad.decode(sealed);
-        } catch {
-          throw new InvalidSealedValueError("Sealed value is malformed");
-        }
-
-        const [nonce, ct] = s.parse(bytes, ...args);
-
-        try {
-          return gcmsiv(key, nonce).decrypt(ct);
-        } catch {
-          throw new InvalidSealedValueError("Sealed value is invalid");
-        }
-      },
-    };
-  };
+function getSealKey() {
+  return env.SEAL_KEY.hex(32);
 }
