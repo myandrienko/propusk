@@ -2,11 +2,11 @@ import { getRedis } from "./redis.ts";
 import { sha1 } from "@noble/hashes/legacy.js";
 import { hex } from "@scure/base";
 
-export interface Script<T extends (...args: string[]) => unknown> {
+export interface Script<T extends (...args: any[]) => unknown> {
   (keys: string[], ...args: Parameters<T>): Promise<ReturnType<T>>;
 }
 
-export function script<T extends (...args: string[]) => unknown>(
+export function script<T extends (...args: any[]) => unknown>(
   template: readonly string[],
   ...substitutions: unknown[]
 ): Script<T> {
@@ -17,7 +17,7 @@ export function script<T extends (...args: string[]) => unknown>(
 
 // Private
 
-class CachedScript<T extends (...args: string[]) => unknown> {
+class CachedScript<T extends (...args: any[]) => unknown> {
   #src: string;
   #sha: string | undefined;
 

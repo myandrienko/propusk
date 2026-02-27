@@ -4,10 +4,10 @@ import { seal, unseal } from "../lib/seal.ts";
 import { UserRef, type User } from "./user.ts";
 
 export interface Session {
-  rt: string;
   user: User;
   clientHints?: string;
   createdAt: number;
+  nonce: string;
 }
 
 const sessionIdLength = 24;

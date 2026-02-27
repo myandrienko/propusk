@@ -18,6 +18,7 @@ interface Env {
   UPSTASH_REDIS_REST_URL?: string;
   UPSTASH_REDIS_REST_TOKEN?: string;
   SEAL_KEY?: string;
+  JWT_SECRET?: string;
   BOT_TOKEN?: string;
   BOT_SECRET?: string;
   BLOB_READ_WRITE_TOKEN?: string;

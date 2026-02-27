@@ -1,23 +1,28 @@
+import { ConflictError, NotFoundError } from "../lib/errors.ts";
+import { getRedis } from "../lib/redis.ts";
+import { script } from "../lib/script.ts";
+import { unix } from "../lib/time.ts";
+import { e } from "../lib/try.ts";
 import {
   ChallengeRef,
   getChallengeKey,
   type Challenge,
   type ChallengeStatus,
+  type PassedChallenge,
 } from "../models/challenge.ts";
-import type { User } from "../models/user.ts";
-import { ConflictError, NotFoundError } from "../lib/errors.ts";
-import { getRedis } from "../lib/redis.ts";
-import { script } from "../lib/script.ts";
-import { unix } from "../lib/time.ts";
+import { SessionRef } from "../models/session.ts";
+import { type User } from "../models/user.ts";
+import { createSession } from "./session.ts";
 
 export interface CreateChallengeInit {
   clientHints?: string;
 }
 
 export interface CreateChallengeResult {
-  code: string;
   token: string;
+  code: string;
   mnemonic: string;
+  clientHints?: string;
 }
 
 export interface ReadChallengeResult {
@@ -32,14 +37,15 @@ export type ConsumeChallengeResult =
 
 export interface PassChallengeResult {
   token: string;
-  status: Extract<ChallengeStatus, "passed">;
+  clientHints?: string;
+  provisionalSessionToken: string;
 }
 
 export async function createChallenge(
   init: CreateChallengeInit = {},
 ): Promise<CreateChallengeResult> {
   const redis = getRedis();
-  const ref = ChallengeRef.create();
+  const ref = new ChallengeRef(ChallengeRef.provision());
   const key = getChallengeKey(ref.code);
   const exat = unix() + 10 * 60; // 10 minutes
 
@@ -47,22 +53,22 @@ export async function createChallenge(
     id: ref.id,
     clientHints: init.clientHints,
     status: "pending",
-    exat,
   };
 
-  const res = await redis.set<Challenge>(key, challenge, {
+  const res = await redis.set(key, challenge, {
     nx: true,
     exat,
   });
 
   if (!res) {
-    throw new ChallengeConflictError("Challenge code already in use");
+    throw new ConflictError("Challenge code already in use");
   }
 
   return {
+    token: ref.getToken({ exat }),
     code: ref.code,
-    token: ref.getToken(exat),
     mnemonic: ref.getMnemonic(),
+    clientHints: challenge.clientHints,
   };
 }
 
@@ -71,16 +77,18 @@ export async function readChallenge(
 ): Promise<ReadChallengeResult> {
   const redis = getRedis();
   const key = getChallengeKey(code);
-  const res = await redis.get<Challenge>(key);
+  const trans = redis.multi().get<Challenge>(key).ttl(key).time();
+  const [res, ttl, [time]] = await trans.exec();
 
   if (!res || res.status === "passed") {
-    throw new ChallengeNotFoundError("Challenge not found");
+    throw new NotFoundError("Challenge not found");
   }
 
   const ref = new ChallengeRef(res.id);
 
   return {
-    token: ref.getToken(res.exat),
+    // TODO: Upstash SDK doesn't implement EXPIRETIME
+    token: ref.getToken({ exat: time + ttl }),
     mnemonic: ref.getMnemonic(),
     clientHints: res.clientHints,
   };
@@ -91,16 +99,31 @@ export async function tryConsumeChallenge(
 ): Promise<ConsumeChallengeResult> {
   const ref = ChallengeRef.fromToken(token);
   const key = getChallengeKey(ref.code);
-  const res = await doConsumeChallenge([key], ref.id);
 
-  if (!res) {
+  const challenge = await e.try(
+    () => doConsumeChallenge([key], ref.id),
+    (err) => {
+      if (err instanceof Error && err.message.includes("NOT_FOUND")) {
+        return new NotFoundError("Challenge not found");
+      }
+    },
+  );
+
+  if (!challenge) {
     return { token, status: "pending" };
   }
+
+  const session = await createSession({
+    sessionId: challenge.provisionalSessionId,
+    user: challenge.user,
+    clientHints: challenge.clientHints,
+  });
 
   return {
     token,
     status: "passed",
-    user: res,
+    accessToken: session.accessToken,
+    refreshToken: session.refreshToken,
   };
 }
 
@@ -110,47 +133,50 @@ export async function passChallenge(
 ): Promise<PassChallengeResult> {
   const ref = ChallengeRef.fromToken(token);
   const key = getChallengeKey(ref.code);
+  const provisionalSessionId = SessionRef.provision();
 
-  try {
-    await doPassChallenge([key], ref.id, JSON.stringify(user));
-  } catch (err) {
-    if (err instanceof Error) {
-      if (err.message.includes("NOT_FOUND")) {
-        throw new ChallengeNotFoundError("Challenge not found");
+  const challenge = await e.try(
+    () =>
+      doPassChallenge(
+        [key],
+        ref.id,
+        JSON.stringify(user),
+        provisionalSessionId,
+      ),
+    (err) => {
+      if (err instanceof Error) {
+        if (err.message.includes("NOT_FOUND")) {
+          return new NotFoundError("Challenge not found");
+        }
+
+        if (err.message.includes("CONFLICT")) {
+          return new ConflictError("Challenge already passed");
+        }
       }
+    },
+  );
 
-      if (err.message.includes("CONFLICT")) {
-        throw new ChallengeConflictError("Challenge already passed");
-      }
-    }
+  const sessionRef = new SessionRef(user.id, provisionalSessionId);
 
-    throw err;
-  }
-
-  return { token, status: "passed" };
+  return {
+    token,
+    clientHints: challenge.clientHints,
+    provisionalSessionToken: sessionRef.getToken(),
+  };
 }
 
 export async function deleteChallenge(token: string) {
   const ref = ChallengeRef.fromToken(token);
   const key = getChallengeKey(ref.code);
 
-  try {
-    await doDeleteChallenge([key], ref.id);
-  } catch (err) {
-    if (err instanceof Error && err.message.includes("NOT_FOUND")) {
-      throw new ChallengeNotFoundError("Challenge not found");
-    }
-
-    throw err;
-  }
-}
-
-export class ChallengeNotFoundError extends NotFoundError {
-  name = "ChallengeNotFoundError";
-}
-
-export class ChallengeConflictError extends ConflictError {
-  name = "ChallengeConflictError";
+  await e.try(
+    () => doDeleteChallenge([key], ref.id),
+    (err) => {
+      if (err instanceof Error && err.message.includes("NOT_FOUND")) {
+        return new NotFoundError("Challenge not found");
+      }
+    },
+  );
 }
 
 // Private
@@ -166,10 +192,11 @@ interface PendingConsumeChallengeResult extends BaseConsumeChallengeResult {
 
 interface SuccesfulConsumeChallengeResult extends BaseConsumeChallengeResult {
   status: "passed";
-  user: User;
+  accessToken: string;
+  refreshToken: string;
 }
 
-const doConsumeChallenge = script<(id: string) => User | null>`
+const doConsumeChallenge = script<(id: string) => PassedChallenge | null>`
 local data = redis.call('GET', KEYS[1])
 if not data then
   return redis.error_reply('NOT_FOUND')
@@ -185,10 +212,12 @@ if challenge.status ~= 'passed' then
 end
 
 redis.call('DEL', KEYS[1])
-return cjson.encode(challenge.user)
+return cjson.encode(challenge)
 `;
 
-const doPassChallenge = script<(id: string, user: string) => "OK">`
+const doPassChallenge = script<
+  (id: string, user: string, provisionalSessionId: string) => PassedChallenge
+>`
 local data = redis.call('GET', KEYS[1])
 if not data then
   return redis.error_reply('NOT_FOUND')
@@ -205,9 +234,11 @@ end
 
 challenge.status = 'passed'
 challenge.user = cjson.decode(ARGV[2])
+challenge.provisionalSessionId = ARGV[3]
 
-redis.call('SET', KEYS[1], cjson.encode(challenge), 'KEEPTTL')
-return redis.status_reply('OK')
+local json = cjson.encode(challenge);
+redis.call('SET', KEYS[1], json, 'KEEPTTL')
+return json
 `;
 
 const doDeleteChallenge = script<(id: string) => "OK">`
