@@ -4,85 +4,67 @@ import { base64urlnopad } from "@scure/base";
 import { env } from "./env.ts";
 import { UnauthorizedError } from "./errors.ts";
 import { unix } from "./time.ts";
-import { etry } from "./try.ts";
+import { e } from "./try.ts";
 
-export type SealableExpirationCheckOptions =
+export type ExpirationCheckOptions =
   | { expires?: false }
   | { expires: true; clockTolerance?: number; now?: number };
 
-export interface SealableExpirationOptions {
+export interface ExpirationOptions {
   exat?: number;
 }
 
-export class Sealable {
-  readonly value: string;
-  readonly asBytes: () => Uint8Array;
+export function unseal(
+  sealed: string,
+  options: ExpirationCheckOptions = {},
+): Uint8Array {
+  const bytes = e.try(
+    () => base64urlnopad.decode(sealed),
+    () => new InvalidSealedValueError("Sealed value is malformed"),
+  );
 
-  static fromSealed(
-    sealed: string,
-    options: SealableExpirationCheckOptions = {},
-  ): Sealable {
-    const sealedBytes = etry(() => base64urlnopad.decode(sealed)).catch(
-      () => new InvalidSealedValueError("Sealed value is malformed"),
-    );
+  let nonce = new Uint8Array(gcmsiv.nonceLength);
+  let ct = bytes;
 
-    let nonce = new Uint8Array(gcmsiv.nonceLength);
-    let ct = sealedBytes;
+  if (options.expires) {
+    const exat = createView(bytes).getUint32(0);
 
-    if (options.expires) {
-      const exat = createView(sealedBytes).getUint32(0);
-
-      if (exat + (options.clockTolerance ?? 0) < (options.now ?? unix())) {
-        throw new InvalidSealedValueError("Sealed value expired");
-      }
-
-      nonce.set(sealedBytes.subarray(0, 4));
-      ct = sealedBytes.subarray(4);
+    if (exat + (options.clockTolerance ?? 0) < (options.now ?? unix())) {
+      throw new InvalidSealedValueError("Sealed value expired");
     }
 
-    const key = getSealKey();
-    const bytes = etry(() => gcmsiv(key, nonce).decrypt(ct)).catch(
-      () => new InvalidSealedValueError("Sealed value is invalid"),
-    );
-
-    return new Sealable(base64urlnopad.encode(bytes), bytes);
+    const timestampSize = 4;
+    nonce.set(bytes.subarray(0, timestampSize));
+    ct = bytes.subarray(timestampSize);
   }
 
-  constructor(value: string, precomputedBytes?: Uint8Array) {
-    this.value = value;
-    let bytes = precomputedBytes;
-    this.asBytes = () => bytes ?? (bytes = base64urlnopad.decode(value));
-  }
-
-  seal(options: SealableExpirationOptions = {}): string {
-    const nonce = new Uint8Array(gcmsiv.nonceLength);
-
-    if (options.exat) {
-      const maxUint32 = 0xffff_ffff;
-
-      if (options.exat < 0 || options.exat > maxUint32) {
-        throw new Error(
-          `Expiration timestamp must be between 0 and ${maxUint32}`,
-        );
-      }
-
-      createView(nonce).setUint32(0, options.exat);
-    }
-
-    const ct = gcmsiv(getSealKey(), nonce).encrypt(
-      etry(() => this.asBytes()).catch(
-        () => new UnsealableValueError("Invalid sealable value format"),
-      ),
-    );
-    const sealedBytes = options.exat
-      ? concatBytes(nonce.subarray(0, 4), ct)
-      : ct;
-    return base64urlnopad.encode(sealedBytes);
-  }
+  return e.try(
+    () => gcmsiv(getSealKey(), nonce).decrypt(ct),
+    () => new InvalidSealedValueError("Sealed value is invalid"),
+  );
 }
 
-export class UnsealableValueError extends Error {
-  name = "UnsealableValueError";
+export function seal(
+  unsealed: Uint8Array,
+  options: ExpirationOptions = {},
+): string {
+  const nonce = new Uint8Array(gcmsiv.nonceLength);
+
+  if (options.exat) {
+    const maxUint32 = 0xffff_ffff;
+
+    if (options.exat < 0 || options.exat > maxUint32) {
+      throw new Error(
+        `Expiration timestamp must be between 0 and ${maxUint32}`,
+      );
+    }
+
+    createView(nonce).setUint32(0, options.exat);
+  }
+
+  const ct = gcmsiv(getSealKey(), nonce).encrypt(unsealed);
+  const bytes = options.exat ? concatBytes(nonce.subarray(0, 4), ct) : ct;
+  return base64urlnopad.encode(bytes);
 }
 
 export class InvalidSealedValueError extends UnauthorizedError {
