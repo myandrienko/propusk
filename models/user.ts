@@ -1,8 +1,7 @@
 import { sha256 } from "@noble/hashes/sha2.js";
-import { env } from "../lib/env.ts";
-import { InvalidSealedValueError, sealedId } from "../lib/seal.ts";
 import { hex } from "@scure/base";
-import { createView } from "@noble/hashes/utils.js";
+import * as codecs from "../lib/codecs.ts";
+import { seal, unseal } from "../lib/seal.ts";
 
 export interface User {
   id: string;
@@ -12,49 +11,38 @@ export interface User {
 }
 
 export class UserRef {
+  // Sealed representation of float64 is 11 base64 characters
+  static readonly format = [11] as const;
+
+  readonly id: string;
   readonly tgId: number;
+  #bytes: Uint8Array;
 
-  #bytes: Uint8Array | undefined;
-
-  static fromPublicId(id: string): UserRef {
-    let payload: Uint8Array;
-
-    try {
-      payload = sealedId(env.SEAL_KEY.hex()).unseal(id);
-    } catch (err) {
-      if (err instanceof InvalidSealedValueError) {
-        throw new InvalidUserIdError("User ID is invalid", { cause: err });
-      }
-
-      throw err;
-    }
-
-    const tgId = createView(payload).getFloat64(0);
-    return new UserRef(tgId);
+  static fromId(id: string): UserRef {
+    const [tgId, bytes] = codecs.f64(unseal(id));
+    return new UserRef({ id, tgId, bytes });
   }
 
-  constructor(tgId: number) {
-    this.tgId = tgId;
+  static fromTgId(tgId: number): UserRef {
+    const [, bytes] = codecs.f64(tgId);
+    return new UserRef({ id: seal(bytes), tgId, bytes });
   }
 
-  getPublicId(): string {
-    return sealedId(env.SEAL_KEY.hex()).seal(this.bytes);
+  private constructor(init: UserRefInit) {
+    this.id = init.id;
+    this.tgId = init.tgId;
+    this.#bytes = init.bytes;
   }
 
   digest(): string {
-    return hex.encode(sha256(this.bytes));
-  }
-
-  private get bytes(): Uint8Array {
-    if (!this.#bytes) {
-      this.#bytes = new Uint8Array(8);
-      createView(this.#bytes).setFloat64(0, this.tgId);
-    }
-
-    return this.#bytes;
+    return hex.encode(sha256(this.#bytes));
   }
 }
 
-export class InvalidUserIdError extends Error {
-  name = "InvalidUserIdError";
+// Private
+
+interface UserRefInit {
+  id: string;
+  tgId: number;
+  bytes: Uint8Array;
 }

@@ -1,6 +1,6 @@
-import { customAlphabet, nanoid, urlAlphabet } from "nanoid";
-import { codec } from "../lib/codec.ts";
-import { Sealable } from "../lib/seal.ts";
+import { nanoid } from "nanoid";
+import * as codecs from "../lib/codecs.ts";
+import { seal, unseal } from "../lib/seal.ts";
 import { UserRef, type User } from "./user.ts";
 
 export interface Session {
@@ -10,39 +10,34 @@ export interface Session {
   createdAt: number;
 }
 
+const sessionIdLength = 24;
+
 export class SessionRef {
+  static readonly format = [...UserRef.format, sessionIdLength] as const;
   readonly userId: string;
   readonly id: string;
-
-  #payload: Sealable;
+  #bytes: Uint8Array;
 
   static provision(): string {
-    return nanoid(idLength);
+    return nanoid(sessionIdLength);
   }
 
   static fromToken(token: string): SessionRef {
-    const payload = Sealable.fromSealed(token);
-    return new SessionRef(payload);
+    return new SessionRef(unseal(token));
   }
 
-  private constructor(
-    ...args: [userId: string, id: string] | [payload: Sealable]
-  ) {
-    [this.userId, this.id, this.#payload] = codec(
-      [UserRef.size, idLength],
+  constructor(...args: [userId: string, id: string] | [payload: Uint8Array]) {
+    [this.userId, this.id, this.#bytes] = codecs.b64concat(
+      SessionRef.format,
       ...args,
     );
   }
 
   getToken(): string {
-    return this.#payload.seal();
+    return seal(this.#bytes);
   }
 }
 
 export function getSessionKey(userId: string, sessionId: string): string {
   return `session:${userId}:${sessionId}`;
 }
-
-// Private
-
-const idLength = 24;

@@ -2,9 +2,9 @@ import * as bip39 from "@scure/bip39";
 import { wordlist } from "@scure/bip39/wordlists/english.js";
 import { customAlphabet, urlAlphabet } from "nanoid";
 import { UnauthorizedError } from "../lib/errors.ts";
-import { Sealable, type SealableExpirationOptions } from "../lib/seal.ts";
 import type { User } from "./user.ts";
-import { codec } from "../lib/codec.ts";
+import { seal, unseal, type ExpirationOptions } from "../lib/seal.ts";
+import * as codecs from "../lib/codecs.ts";
 
 export type Challenge = PendingChallenge | PassedChallenge;
 export type ChallengeStatus = "pending" | "passed";
@@ -18,10 +18,14 @@ export interface PassedChallenge extends BaseChallenge {
   user: User;
 }
 
-export class ChallengeRef {
-  readonly code: string;
+const codeLength = 8;
+const randomnessLength = 16;
 
-  #payload: Sealable;
+export class ChallengeRef {
+  static readonly format = [codeLength + randomnessLength] as const;
+  readonly id: string;
+  readonly code: string;
+  readonly #bytes: Uint8Array;
 
   /**
    * Challenge ID is constructed as a random 8-character alphanumeric code (used
@@ -35,27 +39,22 @@ export class ChallengeRef {
   }
 
   static fromToken(token: string): ChallengeRef {
-    const payload = Sealable.fromSealed(token, { expires: true });
-    return new ChallengeRef(payload);
+    return new ChallengeRef(unseal(token, { expires: true }));
   }
 
-  constructor(...args: [id: string] | [payload: Sealable]) {
-    [this.code, this.#payload] = codec([codeLength], ...args);
+  constructor(...args: [id: string] | [payload: Uint8Array]) {
+    [this.id, this.#bytes] = codecs.b64concat(ChallengeRef.format, ...args);
+    this.code = this.id.slice(0, codeLength);
   }
 
-  get id() {
-    return this.#payload.value;
-  }
-
-  getToken(options: Required<SealableExpirationOptions>) {
-    return this.#payload.seal(options);
+  getToken(options: Required<ExpirationOptions>) {
+    return seal(this.#bytes, options);
   }
 
   getMnemonic() {
-    const bytes = this.#payload.asBytes();
-    // Length of entropy for BIP39 must be a multiple of 32 bits:
-    const entropyLength = Math.trunc(bytes.length / 4) * 4;
-    const entropy = bytes.slice(0, entropyLength);
+    // Length of entropy for BIP39 must be a multiple of 4:
+    const entropyLength = Math.trunc(this.#bytes.length / 4) * 4;
+    const entropy = this.#bytes.slice(0, entropyLength);
     return bip39.entropyToMnemonic(entropy, wordlist);
   }
 }
@@ -82,8 +81,7 @@ interface BaseChallenge {
   exat: number;
 }
 
-const codeLength = 8;
 const alphanumAlphabet =
   "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
 const generateCode = customAlphabet(alphanumAlphabet, codeLength);
-const generateRandomness = customAlphabet(urlAlphabet, 16);
+const generateRandomness = customAlphabet(urlAlphabet, randomnessLength);
