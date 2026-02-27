@@ -12,6 +12,7 @@
  * codec a useful "normalization" step in model reference constructor.
  */
 
+import { createView } from "@noble/hashes/utils.js";
 import { base64urlnopad } from "@scure/base";
 import { env } from "./env.ts";
 import { e } from "./try.ts";
@@ -76,6 +77,27 @@ export function b64concat<const T extends string[]>(
 
   const args = argsOrPayload as T;
   return [...args, encode(...args)];
+}
+
+/**
+ * Handles a single number as a float64 (8 bytes).
+ */
+export function f64(valueOrPayload: number | Uint8Array): [number, Uint8Array] {
+  const size = 8;
+
+  if (valueOrPayload instanceof Uint8Array) {
+    if (env.NODE_ENV() !== "production") {
+      if (valueOrPayload.length !== size) {
+        throw new CodecFormatError("Invalid payload: length must be 8");
+      }
+    }
+
+    return [createView(valueOrPayload).getFloat64(0), valueOrPayload];
+  }
+
+  const bytes = new Uint8Array(size);
+  createView(bytes).setFloat64(0, valueOrPayload);
+  return [valueOrPayload, bytes];
 }
 
 export class CodecFormatError extends Error {
