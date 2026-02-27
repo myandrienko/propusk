@@ -33,7 +33,22 @@ export function b64concat<const T extends string[]>(
     }
   }
 
-  const decode = (payload: Uint8Array): T => {
+  const decode = (...args: T): Uint8Array => {
+    if (env.NODE_ENV() !== "production") {
+      if (args.some((arg, i) => arg.length !== format[i])) {
+        throw new CodecFormatError(
+          "Invalid argument: length does not match format",
+        );
+      }
+    }
+
+    return e.try(
+      () => base64urlnopad.decode("".concat(...args)),
+      () => new CodecFormatError("Invalid base64 encoding"),
+    );
+  };
+
+  const encode = (payload: Uint8Array): T => {
     const str = base64urlnopad.encode(payload);
 
     if (env.NODE_ENV() !== "production") {
@@ -55,28 +70,13 @@ export function b64concat<const T extends string[]>(
     return parts as T;
   };
 
-  const encode = (...args: T): Uint8Array => {
-    if (env.NODE_ENV() !== "production") {
-      if (args.some((arg, i) => arg.length !== format[i])) {
-        throw new CodecFormatError(
-          "Invalid argument: length does not match format",
-        );
-      }
-    }
-
-    return e.try(
-      () => base64urlnopad.decode("".concat(...args)),
-      () => new CodecFormatError("Invalid base64 encoding"),
-    );
-  };
-
   if (argsOrPayload[0] instanceof Uint8Array) {
     const payload = argsOrPayload[0];
-    return [...decode(payload), payload];
+    return [...encode(payload), payload];
   }
 
   const args = argsOrPayload as T;
-  return [...args, encode(...args)];
+  return [...args, decode(...args)];
 }
 
 /**
@@ -95,9 +95,9 @@ export function f64(valueOrPayload: number | Uint8Array): [number, Uint8Array] {
     return [createView(valueOrPayload).getFloat64(0), valueOrPayload];
   }
 
-  const bytes = new Uint8Array(size);
-  createView(bytes).setFloat64(0, valueOrPayload);
-  return [valueOrPayload, bytes];
+  const payload = new Uint8Array(size);
+  createView(payload).setFloat64(0, valueOrPayload);
+  return [valueOrPayload, payload];
 }
 
 export class CodecFormatError extends Error {
