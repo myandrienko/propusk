@@ -1,8 +1,8 @@
 import { hex } from "@scure/base";
-import { etry } from "./try.ts";
+import { e } from "./try.ts";
 
 export type SafeEnv = {
-  [K in keyof Env]-?: SafeEnvValue;
+  [K in keyof NodeJS.ProcessEnv]-?: SafeEnvValue;
 };
 
 export interface SafeEnvValue {
@@ -48,7 +48,8 @@ function createSafeEnv(): SafeEnv {
 
       getSafeEnvValue.hex = (size?: number) => {
         const str = getSafeEnvValue();
-        const bytes = etry(() => hex.decode(str)).catch(
+        const bytes = e.try(
+          () => hex.decode(str),
           () => new Error(`Environment variable "${key}" is not a hex string`),
         );
 
