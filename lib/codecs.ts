@@ -13,6 +13,7 @@
  */
 
 import { base64urlnopad } from "@scure/base";
+import { env } from "./env.ts";
 import { e } from "./try.ts";
 
 /**
@@ -25,27 +26,42 @@ export function b64concat<const T extends string[]>(
   format: FormatFor<T>,
   ...argsOrPayload: T | [payload: Uint8Array]
 ): [...T, Uint8Array] {
-  // TODO: validate that formats are a multiple of four
+  if (env.NODE_ENV() !== "production") {
+    if (format.some((length) => length % 4 !== 0)) {
+      throw new CodecFormatError("Invalid format: must be multiple of 4");
+    }
+  }
 
   const decode = (payload: Uint8Array): T => {
     const str = base64urlnopad.encode(payload);
 
-    // TODO: validate that the string length is exactly the sum of formats.
+    if (env.NODE_ENV() !== "production") {
+      if (str.length !== format.reduce((sum, len) => sum + len)) {
+        throw new CodecFormatError(
+          "Invalid payload: length does not match format",
+        );
+      }
+    }
 
-    const parts: string[] = [];
+    const parts = Array<string>(format.length);
 
     let start = 0;
-    for (const length of format) {
-      parts.push(str.slice(start, start + length));
-      start += length;
+    for (let i = 0; i < format.length; i++) {
+      parts[i] = str.slice(start, start + format[i]);
+      start += format[i];
     }
 
     return parts as T;
   };
 
   const encode = (...args: T): Uint8Array => {
-    // TODO: validate that each arg is exactly the length of the corresponding
-    // format
+    if (env.NODE_ENV() !== "production") {
+      if (args.some((arg, i) => arg.length !== format[i])) {
+        throw new CodecFormatError(
+          "Invalid argument: length does not match format",
+        );
+      }
+    }
 
     return e.try(
       () => base64urlnopad.decode("".concat(...args)),
