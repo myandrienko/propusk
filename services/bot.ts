@@ -1,23 +1,24 @@
 import type { TelegramUpdate } from "wrappergram";
+import { ConflictError, NotFoundError } from "../lib/errors.ts";
 import { hostUserPhoto } from "../lib/photos.ts";
 import * as templates from "../lib/templates.ts";
 import { getTg } from "../lib/tg.ts";
 import { UserRef, type User } from "../models/user.ts";
 import {
   isChallengeCodeUpdate,
-  isPromptResponseUpdate,
+  isPromptCallbackUpdate,
+  isSignOutCallbackUpdate,
   type ChallengeCodeUpdate,
-  type PromptResponseCallbackQuery,
-  type PromptResponseUpdate,
+  type TaggedCallbackQuery,
+  type TaggedCallbackUpdate,
 } from "../models/webhook.ts";
 import {
-  ChallengeConflictError,
-  ChallengeNotFoundError,
   deleteChallenge,
   passChallenge,
   readChallenge,
   type ReadChallengeResult,
 } from "./challenge.ts";
+import { deleteSession } from "./session.ts";
 
 export async function handleTgUpdate(update: TelegramUpdate): Promise<boolean> {
   const tg = getTg();
@@ -30,9 +31,15 @@ export async function handleTgUpdate(update: TelegramUpdate): Promise<boolean> {
       return true;
     }
 
-    if (isPromptResponseUpdate(update)) {
+    if (isPromptCallbackUpdate(update)) {
       chatId = update.callback_query.message.chat.id;
       await handlePromptResponse(update);
+      return true;
+    }
+
+    if (isSignOutCallbackUpdate(update)) {
+      chatId = update.callback_query.message.chat.id;
+      await handleSignOut(update);
       return true;
     }
   } catch (err) {
@@ -58,7 +65,7 @@ async function handleChallengeCode(update: ChallengeCodeUpdate): Promise<void> {
   try {
     res = await readChallenge(update.message.text);
   } catch (err) {
-    if (err instanceof ChallengeNotFoundError) {
+    if (err instanceof NotFoundError) {
       await tg.api.sendMessage({
         chat_id: update.message.chat.id,
         ...templates.challengeNotFound(),
@@ -76,7 +83,7 @@ async function handleChallengeCode(update: ChallengeCodeUpdate): Promise<void> {
 }
 
 async function handlePromptResponse(
-  update: PromptResponseUpdate,
+  update: TaggedCallbackUpdate,
 ): Promise<void> {
   const tg = getTg();
   const cq = update.callback_query;
@@ -92,47 +99,44 @@ async function handlePromptResponse(
 }
 
 async function handlePromptConfirm(
-  cq: PromptResponseCallbackQuery,
+  cq: TaggedCallbackQuery,
   token: string,
 ): Promise<void> {
   const tg = getTg();
-  const ref = new UserRef(cq.from.id);
+  const userRef = UserRef.fromTgId(cq.from.id);
 
-  try {
-    const user: User = {
-      id: ref.getPublicId(),
-      name: [cq.from.first_name, cq.from.last_name].filter(Boolean).join(" "),
-      lang: cq.from.language_code ?? "en",
-      image: await hostUserPhoto(ref),
-    };
+  const user: User = {
+    id: userRef.id,
+    name: [cq.from.first_name, cq.from.last_name].filter(Boolean).join(" "),
+    lang: cq.from.language_code ?? "en",
+    image: await hostUserPhoto(userRef),
+  };
 
-    await passChallenge(token, user);
-  } catch (err) {
-    if (
-      err instanceof ChallengeNotFoundError ||
-      err instanceof ChallengeConflictError
-    ) {
+  const res = await passChallenge(token, user).catch(async (err) => {
+    if (err instanceof NotFoundError || err instanceof ConflictError) {
       await tg.api.editMessageText({
         chat_id: cq.message.chat.id,
         message_id: cq.message.message_id,
         ...templates.promptExpired(),
       });
 
-      return;
+      return null;
     }
 
     throw err;
-  }
-
-  await tg.api.editMessageText({
-    chat_id: cq.message.chat.id,
-    message_id: cq.message.message_id,
-    ...templates.promptConfirmed(),
   });
+
+  if (res) {
+    await tg.api.editMessageText({
+      chat_id: cq.message.chat.id,
+      message_id: cq.message.message_id,
+      ...templates.promptConfirmed(res.provisionalSessionToken),
+    });
+  }
 }
 
 async function handlePromptReject(
-  cq: PromptResponseCallbackQuery,
+  cq: TaggedCallbackQuery,
   token: string,
 ): Promise<void> {
   const tg = getTg();
@@ -142,4 +146,21 @@ async function handlePromptReject(
     message_id: cq.message.message_id,
     ...templates.promptRejected(),
   });
+}
+
+async function handleSignOut(update: TaggedCallbackUpdate): Promise<void> {
+  const tg = getTg();
+  const cq = update.callback_query;
+  const [, token] = cq.data.split(":");
+
+  try {
+    await deleteSession(token);
+    await tg.api.editMessageText({
+      chat_id: cq.message.chat.id,
+      message_id: cq.message.message_id,
+      ...templates.signedOut(),
+    });
+  } finally {
+    await tg.api.answerCallbackQuery({ callback_query_id: cq.id });
+  }
 }

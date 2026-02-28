@@ -80,6 +80,16 @@ export async function refreshSession(
   };
 }
 
+export async function deleteSession(token: string): Promise<void> {
+  const ref = SessionRef.fromToken(token);
+  const key = getSessionKey(ref.userId, ref.id);
+  const res = await getRedis().del(key);
+
+  if (res === 0) {
+    throw new NotFoundError("Session not found");
+  }
+}
+
 // Private
 
 interface AccessTokenJwtPayload {

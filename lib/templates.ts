@@ -38,18 +38,24 @@ export function promptExpired(): MessageTemplate {
   `;
 }
 
-export function promptConfirmed(): MessageTemplate {
+export function promptConfirmed(token: string): MessageTemplate {
   return {
     ...format`
       ${bold`You have signed in.`}
     `,
-    reply_markup: new InlineKeyboard().text("Sign Out", "signout"),
+    reply_markup: new InlineKeyboard().text("Sign Out", `d:${token}`),
   };
 }
 
 export function promptRejected(): MessageTemplate {
   return format`
     ${bold`Authentication attempt cancelled.`}
+  `;
+}
+
+export function signedOut(): MessageTemplate {
+  return format`
+    ${bold`You have signed out.`}
   `;
 }
 

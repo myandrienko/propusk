@@ -14,11 +14,11 @@ export interface ChallengeCodeMessage extends TelegramMessage {
   text: string;
 }
 
-export interface PromptResponseUpdate extends TelegramUpdate {
-  callback_query: PromptResponseCallbackQuery;
+export interface TaggedCallbackUpdate extends TelegramUpdate {
+  callback_query: TaggedCallbackQuery;
 }
 
-export interface PromptResponseCallbackQuery extends TelegramCallbackQuery {
+export interface TaggedCallbackQuery extends TelegramCallbackQuery {
   data: string;
   message: TelegramMaybeInaccessibleMessage;
 }
@@ -35,17 +35,34 @@ export function isChallengeCodeUpdate(
   return isValidChallengeCode(text);
 }
 
-export function isPromptResponseUpdate(
+export function isPromptCallbackUpdate(
   update: TelegramUpdate,
-): update is PromptResponseUpdate {
+): update is TaggedCallbackUpdate {
+  if (!isCallbackUpdate(update)) {
+    return false;
+  }
+
+  const cq = update.callback_query;
+  return cq.data.startsWith("y:") || cq.data.startsWith("n:");
+}
+
+export function isSignOutCallbackUpdate(
+  update: TelegramUpdate,
+): update is TaggedCallbackUpdate {
+  return (
+    isCallbackUpdate(update) && update.callback_query.data.startsWith("d:")
+  );
+}
+
+// Private
+
+function isCallbackUpdate(
+  update: TelegramUpdate,
+): update is TaggedCallbackUpdate {
   if (!update.callback_query) {
     return false;
   }
 
   const cq = update.callback_query;
-  return (
-    cq.data !== undefined &&
-    (cq.data.startsWith("y:") || cq.data.startsWith("n:")) &&
-    cq.message !== undefined
-  );
+  return cq.data !== undefined && cq.message !== undefined;
 }
