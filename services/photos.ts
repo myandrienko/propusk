@@ -1,6 +1,6 @@
-import type { TelegramPhotoSize } from "wrappergram";
-import { getTg } from "./tg.ts";
 import { put } from "@vercel/blob";
+import type { TelegramPhotoSize } from "wrappergram";
+import { getTg } from "../lib/tg.ts";
 import type { UserRef } from "../models/user.ts";
 
 /**
@@ -17,7 +17,7 @@ export async function hostUserPhoto(ref: UserRef): Promise<string | undefined> {
   }
 
   const digest = ref.digest();
-  const url = await uploadToBlob(`photos/${digest}.${photo.ext}`, photo.body);
+  const url = await uploadToBlob(`photos/${digest}${photo.ext}`, photo.body);
   return url;
 }
 
@@ -90,7 +90,7 @@ async function getPhotoFileId(tgUserId: number): Promise<string | undefined> {
     });
   }
 
-  if (res.result.total_count) {
+  if (!res.result.total_count) {
     return undefined;
   }
 
@@ -135,6 +135,6 @@ function pickPhotoSize(
 }
 
 function getFileExt(url: string): string | undefined {
-  const match = url.match(/\.[A-Za-z0-9]+/);
+  const match = url.match(/\.[A-Za-z0-9]+$/);
   return match?.[0];
 }
