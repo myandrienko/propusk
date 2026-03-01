@@ -1,6 +1,6 @@
 import type { TelegramUpdate, TelegramUser } from "wrappergram";
 import { ConflictError, NotFoundError } from "../lib/errors.ts";
-import * as templates from "../lib/templates.ts";
+import * as templates from "./templates.ts";
 import { getTg } from "../lib/tg.ts";
 import { ChallengeRef, isValidChallengeCode } from "../models/challenge.ts";
 import { SessionRef } from "../models/session.ts";
@@ -19,6 +19,7 @@ import {
   type ReadChallengeResult,
 } from "./challenge.ts";
 import { deleteSession } from "./session.ts";
+import { InvalidSealedValueError } from "../lib/seal.ts";
 
 export async function handleTgUpdate(update: TelegramUpdate): Promise<boolean> {
   const tg = getTg();
@@ -113,10 +114,10 @@ async function handlePromptConfirm(
   token: string,
 ): Promise<true> {
   const tg = getTg();
-  const challengeRef = ChallengeRef.fromToken(token);
-  const user = await fromTgUser(cq.from);
 
   try {
+    const challengeRef = ChallengeRef.fromToken(token);
+    const user = await fromTgUser(cq.from);
     const res = await passChallenge(challengeRef, user);
     const sessionToken = res.provisionalSessionRef.getToken();
     await tg.api.editMessageText({
@@ -125,12 +126,12 @@ async function handlePromptConfirm(
       ...templates.promptConfirmed(sessionToken),
     });
   } catch (err) {
-    if (err instanceof NotFoundError || err instanceof ConflictError) {
-      await tg.api.editMessageText({
-        chat_id: cq.message.chat.id,
-        message_id: cq.message.message_id,
-        ...templates.promptExpired(),
-      });
+    if (
+      err instanceof NotFoundError ||
+      err instanceof ConflictError ||
+      err instanceof InvalidSealedValueError
+    ) {
+      await handleTokenExpired(cq);
     } else {
       throw err;
     }
@@ -144,14 +145,35 @@ async function handlePromptReject(
   token: string,
 ): Promise<true> {
   const tg = getTg();
-  const challengeRef = ChallengeRef.fromToken(token);
-  await deleteChallenge(challengeRef);
+
+  try {
+    const challengeRef = ChallengeRef.fromToken(token);
+    await deleteChallenge(challengeRef);
+    await tg.api.editMessageText({
+      chat_id: cq.message.chat.id,
+      message_id: cq.message.message_id,
+      ...templates.promptRejected(),
+    });
+  } catch (err) {
+    if (
+      err instanceof NotFoundError ||
+      err instanceof InvalidSealedValueError
+    ) {
+      await handleTokenExpired(cq);
+    } else {
+      throw err;
+    }
+  }
+  return true;
+}
+
+async function handleTokenExpired(cq: TgDataCallbackQuery) {
+  const tg = getTg();
   await tg.api.editMessageText({
     chat_id: cq.message.chat.id,
     message_id: cq.message.message_id,
-    ...templates.promptRejected(),
+    ...templates.promptExpired(),
   });
-  return true;
 }
 
 async function handleSignOut(
