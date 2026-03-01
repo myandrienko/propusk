@@ -10,7 +10,7 @@ export class RefreshNonce {
   readonly exat: number;
   readonly sessionRef: SessionRef;
   readonly nonce: string;
-  #bytes: Uint8Array;
+  #asBytes: () => Uint8Array;
 
   static provision() {
     return nanoid(nonceLength);
@@ -29,7 +29,7 @@ export class RefreshNonce {
     this.exat = exat;
     let userTgId: number;
     let sessionId: string;
-    [userTgId, sessionId, this.nonce, this.#bytes] = codec(
+    [userTgId, sessionId, this.nonce, this.#asBytes] = codec(
       RefreshNonce.format,
       ...args,
     );
@@ -37,6 +37,6 @@ export class RefreshNonce {
   }
 
   getToken(): string {
-    return seal(this.#bytes, { exat: this.exat });
+    return seal(this.#asBytes(), { exat: this.exat });
   }
 }

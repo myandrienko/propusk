@@ -19,7 +19,7 @@ export class SessionRef {
   ] as const;
   readonly userRef: UserRef;
   readonly id: string;
-  #bytes: Uint8Array;
+  #asBytes: () => Uint8Array;
 
   static provision(): string {
     return nanoid(sessionIdLength);
@@ -31,12 +31,12 @@ export class SessionRef {
 
   constructor(...args: [userTgId: number, id: string] | [payload: Uint8Array]) {
     let userTgId: number;
-    [userTgId, this.id, this.#bytes] = codec(SessionRef.format, ...args);
+    [userTgId, this.id, this.#asBytes] = codec(SessionRef.format, ...args);
     this.userRef = UserRef.fromTgId(userTgId);
   }
 
   getToken(): string {
-    return seal(this.#bytes);
+    return seal(this.#asBytes());
   }
 }
 

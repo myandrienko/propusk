@@ -10,8 +10,8 @@ import { e } from "./try.ts";
  * A lot of model references (see the `models/` directory) can be constructed
  * either from a sealed "token", or by providing values (usually ids) directly.
  * Codec handles both cases: when an unsealed binary payload is provided, it
- * decodes it into values; when values are provided, it encodes them into
- * a binary payload.
+ * decodes it into values; when values are provided, it lazily encodes them
+ * into a binary payload.
  *
  * In either case, both the values and the payload are returned, which makes
  * codec a useful "normalization" step in model reference constructor.
@@ -25,7 +25,7 @@ import { e } from "./try.ts";
 export function codec<const F extends readonly FormatSpecifier[]>(
   format: F,
   ...parts: PartsFromFormat<F> | [payload: Uint8Array]
-): [...PartsFromFormat<F>, Uint8Array] {
+): [...PartsFromFormat<F>, () => Uint8Array] {
   const encode = (...parts: unknown[]): Uint8Array => {
     const { pformat, totalSize } = parseFormat(format);
     const payload = new Uint8Array(totalSize);
@@ -90,10 +90,10 @@ export function codec<const F extends readonly FormatSpecifier[]>(
 
   if (parts[0] instanceof Uint8Array) {
     const payload = parts[0];
-    return [...(decode(payload) as PartsFromFormat<F>), payload];
+    return [...(decode(payload) as PartsFromFormat<F>), () => payload];
   }
 
-  return [...(parts as PartsFromFormat<F>), encode(...parts)];
+  return [...(parts as PartsFromFormat<F>), () => encode(...parts)];
 }
 
 export class CodecFormatError extends Error {

@@ -26,7 +26,7 @@ export class ChallengeRef {
   readonly exat: number;
   readonly id: string;
   readonly code: string;
-  readonly #bytes: Uint8Array;
+  readonly #asBytes: () => Uint8Array;
 
   /**
    * Challenge ID is constructed as a random 8-character alphanumeric code (used
@@ -45,18 +45,18 @@ export class ChallengeRef {
 
   constructor(exat: number, ...args: [id: string] | [payload: Uint8Array]) {
     this.exat = exat;
-    [this.id, this.#bytes] = codec(ChallengeRef.format, ...args);
+    [this.id, this.#asBytes] = codec(ChallengeRef.format, ...args);
     this.code = this.id.slice(0, codeLength);
   }
 
   getToken() {
-    return seal(this.#bytes, { exat: this.exat });
+    return seal(this.#asBytes(), { exat: this.exat });
   }
 
   getMnemonic() {
     // Length of entropy for BIP39 must be a multiple of 4:
-    const entropyLength = Math.trunc(this.#bytes.length / 4) * 4;
-    const entropy = this.#bytes.slice(0, entropyLength);
+    const entropyLength = Math.trunc(this.#asBytes().length / 4) * 4;
+    const entropy = this.#asBytes().slice(0, entropyLength);
     return bip39.entropyToMnemonic(entropy, wordlist);
   }
 }
@@ -68,10 +68,6 @@ export function getChallengeKey(id: string): string {
 export function isValidChallengeCode(maybeCode: string): boolean {
   const pattern = new RegExp(`^[A-Za-z0-9]{${codeLength}}$`);
   return pattern.test(maybeCode);
-}
-
-export class InvalidChallengeTokenError extends UnauthorizedError {
-  name = "InvalidChallengeTokenError";
 }
 
 // Private

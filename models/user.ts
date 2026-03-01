@@ -15,26 +15,26 @@ export class UserRef {
 
   readonly id: string;
   readonly tgId: number;
-  #bytes: Uint8Array;
+  #asBytes: () => Uint8Array;
 
   static fromId(id: string): UserRef {
-    const [tgId, bytes] = codec(UserRef.format, unseal(id));
-    return new UserRef({ id, tgId, bytes });
+    const [tgId, asBytes] = codec(UserRef.format, unseal(id));
+    return new UserRef({ id, tgId, asBytes });
   }
 
   static fromTgId(tgId: number): UserRef {
-    const [, bytes] = codec(UserRef.format, tgId);
-    return new UserRef({ id: seal(bytes), tgId, bytes });
+    const [, asBytes] = codec(UserRef.format, tgId);
+    return new UserRef({ id: seal(asBytes()), tgId, asBytes });
   }
 
   private constructor(init: UserRefInit) {
     this.id = init.id;
     this.tgId = init.tgId;
-    this.#bytes = init.bytes;
+    this.#asBytes = init.asBytes;
   }
 
   digest(): string {
-    return hex.encode(sha256(this.#bytes));
+    return hex.encode(sha256(this.#asBytes()));
   }
 }
 
@@ -43,5 +43,5 @@ export class UserRef {
 interface UserRefInit {
   id: string;
   tgId: number;
-  bytes: Uint8Array;
+  asBytes: () => Uint8Array;
 }
