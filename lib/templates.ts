@@ -17,18 +17,22 @@ export function challengeNotFound(): MessageTemplate {
   `;
 }
 
-export function prompt(challenge: ReadChallengeResult): MessageTemplate {
+export function prompt(strings: {
+  clientHints?: string;
+  mnemonic: string;
+  token: string;
+}): MessageTemplate {
   return {
     ...format`
-      ${bold`You’re about to sign in.`} Once confirmed, you’ll be signed in on ${italic`${challenge.clientHints}`}.
+      ${bold`You’re about to sign in.`} Once confirmed, you’ll be signed in on ${italic`${strings.clientHints}`}.
       
       Only confirm if this is your device, and the magic phrase matches what you see on screen:
       
-      ${code`${challenge.mnemonic}`}
+      ${code`${strings.mnemonic}`}
     `,
     reply_markup: new InlineKeyboard()
-      .text("Sign In", `y:${challenge.token}`, { style: "success" })
-      .text("Cancel", `n:${challenge.token}`, { style: "danger" }),
+      .text("Sign In", `y:${strings.token}`, { style: "success" })
+      .text("Cancel", `n:${strings.token}`, { style: "danger" }),
   };
 }
 

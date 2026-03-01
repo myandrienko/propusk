@@ -1,14 +1,14 @@
 import { nanoid } from "nanoid";
-import * as codecs from "../lib/codecs.ts";
-import { seal, unseal, type ExpirationOptions } from "../lib/seal.ts";
+import { codec } from "../lib/codec.ts";
+import { seal, unseal } from "../lib/seal.ts";
 import { SessionRef } from "./session.ts";
 
 const nonceLength = 24;
 
 export class RefreshNonce {
-  static readonly format = [...SessionRef.format, nonceLength] as const;
-  readonly userId: string;
-  readonly sessionId: string;
+  static readonly format = [...SessionRef.format, `${nonceLength}b64`] as const;
+  readonly exat: number;
+  readonly sessionRef: SessionRef;
   readonly nonce: string;
   #bytes: Uint8Array;
 
@@ -17,21 +17,26 @@ export class RefreshNonce {
   }
 
   static fromToken(token: string): RefreshNonce {
-    return new RefreshNonce(unseal(token, { expires: true }));
+    return new RefreshNonce(...unseal(token, { expires: true }));
   }
 
   constructor(
+    exat: number,
     ...args:
-      | [userId: string, sessionId: string, nonce: string]
+      | [userTgId: number, sessionId: string, nonce: string]
       | [payload: Uint8Array]
   ) {
-    [this.userId, this.sessionId, this.nonce, this.#bytes] = codecs.b64concat(
+    this.exat = exat;
+    let userTgId: number;
+    let sessionId: string;
+    [userTgId, sessionId, this.nonce, this.#bytes] = codec(
       RefreshNonce.format,
       ...args,
     );
+    this.sessionRef = new SessionRef(userTgId, sessionId);
   }
 
-  getToken(options: Required<ExpirationOptions>): string {
-    return seal(this.#bytes, options);
+  getToken(): string {
+    return seal(this.#bytes, { exat: this.exat });
   }
 }

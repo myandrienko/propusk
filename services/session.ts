@@ -1,13 +1,14 @@
-import { getRedis } from "../lib/redis.ts";
-import { unix } from "../lib/time.ts";
-import { getSessionKey, SessionRef, type Session } from "../models/session.ts";
-import type { User } from "../models/user.ts";
-import { RefreshNonce } from "../models/refresh.ts";
 import { SignJWT } from "jose";
 import { env } from "../lib/env.ts";
-import { script } from "../lib/script.ts";
+import { NotFoundError } from "../lib/errors.ts";
+import { getRedis } from "../lib/redis.ts";
+import { mapScriptError, script } from "../lib/script.ts";
+import { unix } from "../lib/time.ts";
 import { e } from "../lib/try.ts";
-import { NotFoundError, ConflictError } from "../lib/errors.ts";
+import { getChallengeKey } from "../models/challenge.ts";
+import { RefreshNonce } from "../models/refresh.ts";
+import { getSessionKey, SessionRef, type Session } from "../models/session.ts";
+import type { User, UserRef } from "../models/user.ts";
 
 export interface CreateSessionInit {
   sessionId?: string;
@@ -15,21 +16,22 @@ export interface CreateSessionInit {
   clientHints?: string;
 }
 
-export interface CreateSessionResult {
+export interface SessionTokens {
   accessToken: string;
   refreshToken: string;
 }
 
 export async function createSession(
   init: CreateSessionInit,
-): Promise<CreateSessionResult> {
+): Promise<SessionTokens> {
   const redis = getRedis();
   const sessionId = init.sessionId ?? SessionRef.provision();
-  const key = getSessionKey(init.user.id, sessionId);
+  const key = getSessionKey(init.user.tgId, sessionId);
   const exat = unix() + refreshTokenTtl;
 
   const refresh = new RefreshNonce(
-    init.user.id,
+    exat,
+    init.user.tgId,
     sessionId,
     RefreshNonce.provision(),
   );
@@ -44,49 +46,56 @@ export async function createSession(
   await redis.set(key, session, { exat });
 
   return {
-    accessToken: await signAccessToken(init.user),
-    refreshToken: refresh.getToken({ exat }),
+    accessToken: await signAccessToken(refresh.sessionRef.userRef, init.user),
+    refreshToken: refresh.getToken(),
   };
 }
 
 export async function refreshSession(
-  token: string,
-): Promise<CreateSessionResult> {
-  const ref = RefreshNonce.fromToken(token);
-  const key = getSessionKey(ref.userId, ref.sessionId);
+  refresh: RefreshNonce,
+): Promise<SessionTokens> {
+  const userTgId = refresh.sessionRef.userRef.tgId;
+  const sessionId = refresh.sessionRef.id;
+  const key = getSessionKey(userTgId, sessionId);
   const nextNonce = RefreshNonce.provision();
   const nextExat = unix() + refreshTokenTtl;
 
   const session = await e.try(
-    () => doRefreshSession([key], ref.nonce, nextNonce, refreshTokenTtl),
-    (err) => {
-      if (err instanceof Error) {
-        if (err.message.includes("NOT_FOUND")) {
-          return new NotFoundError("Session not found");
-        }
-
-        if (err.message.includes("CONFLICT")) {
-          return new ConflictError("Refresh token already used");
-        }
-      }
-    },
+    () => doRefreshSession([key], refresh.nonce, nextNonce, refreshTokenTtl),
+    (err) =>
+      mapScriptError(err, {
+        notFound: "Session not found",
+        conflict: "Refresh token already used",
+      }),
   );
 
-  const refresh = new RefreshNonce(ref.userId, ref.sessionId, nextNonce);
+  const nextRefresh = new RefreshNonce(
+    nextExat,
+    userTgId,
+    sessionId,
+    nextNonce,
+  );
 
   return {
-    accessToken: await signAccessToken(session.user),
-    refreshToken: refresh.getToken({ exat: nextExat }),
+    accessToken: await signAccessToken(
+      refresh.sessionRef.userRef,
+      session.user,
+    ),
+    refreshToken: nextRefresh.getToken(),
   };
 }
 
-export async function deleteSession(token: string): Promise<void> {
-  const ref = SessionRef.fromToken(token);
-  const key = getSessionKey(ref.userId, ref.id);
-  const res = await getRedis().del(key);
+export async function deleteSession(ref: SessionRef): Promise<void> {
+  // Session could have been provisional, i.e. session token was generated
+  // when the challenge had been passed, but the challenge hasn't been
+  // consumed yet. To cover this case, we try deleting both the session
+  // and the challenge:
+  const sessionKey = getSessionKey(ref.userRef.tgId, ref.id);
+  const challengeKey = getChallengeKey(ref.id);
+  const res = await getRedis().del(sessionKey, challengeKey);
 
   if (res === 0) {
-    throw new NotFoundError("Session not found");
+    throw new NotFoundError("Session and provisional session not found");
   }
 }
 
@@ -104,17 +113,19 @@ interface AccessTokenJwtPayload {
 const refreshTokenTtl = 90 * 24 * 60 * 60; // 30 days
 const accessTokenTtl = 60; // 1 minute
 
-function signAccessToken(user: User) {
+function signAccessToken(ref: UserRef, user: User) {
   const exat = unix() + accessTokenTtl;
 
   return new SignJWT({
     iss: "propusk",
-    sub: user.id,
+    sub: ref.id,
     exp: exat,
     name: user.name,
     lang: user.lang,
     image: user.image,
-  } satisfies AccessTokenJwtPayload).sign(getJwtSecret());
+  } satisfies AccessTokenJwtPayload)
+    .setProtectedHeader({ alg: "HS256" })
+    .sign(getJwtSecret());
 }
 
 function getJwtSecret() {
@@ -124,14 +135,14 @@ function getJwtSecret() {
 const doRefreshSession = script<
   (nonce: string, nextNonce: string, nextExat: number) => Session
 >`
-local data = redis.call('GET', KEYS[1])
-if not data then
-  return redis.error_reply('NOT_FOUND')
+local session_json = redis.call('GET', KEYS[1])
+if not session_json then
+  return redis.error_reply('NOTFOUND Session not found')
 end
 
-local session = cjson.decode(data)
+local session = cjson.decode(session_json)
 if session.nonce ~= ARGV[1] then
-  return redis.error_reply('CONFLICT')
+  return redis.error_reply('CONFLICT Refresh token already used')
 end
 
 session.nonce = ARGV[2]

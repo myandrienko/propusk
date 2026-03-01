@@ -1,9 +1,9 @@
 import * as bip39 from "@scure/bip39";
 import { wordlist } from "@scure/bip39/wordlists/english.js";
 import { customAlphabet, urlAlphabet } from "nanoid";
-import * as codecs from "../lib/codecs.ts";
+import { codec } from "../lib/codec.ts";
 import { UnauthorizedError } from "../lib/errors.ts";
-import { seal, unseal, type ExpirationOptions } from "../lib/seal.ts";
+import { seal, unseal } from "../lib/seal.ts";
 import type { User } from "./user.ts";
 
 export type Challenge = PendingChallenge | PassedChallenge;
@@ -16,14 +16,14 @@ export interface PendingChallenge extends BaseChallenge {
 export interface PassedChallenge extends BaseChallenge {
   status: "passed";
   user: User;
-  provisionalSessionId: string;
 }
 
 const codeLength = 8;
 const randomnessLength = 16;
 
 export class ChallengeRef {
-  static readonly format = [codeLength + randomnessLength] as const;
+  static readonly format = [`${codeLength + randomnessLength}b64`] as const;
+  readonly exat: number;
   readonly id: string;
   readonly code: string;
   readonly #bytes: Uint8Array;
@@ -40,16 +40,17 @@ export class ChallengeRef {
   }
 
   static fromToken(token: string): ChallengeRef {
-    return new ChallengeRef(unseal(token, { expires: true }));
+    return new ChallengeRef(...unseal(token, { expires: true }));
   }
 
-  constructor(...args: [id: string] | [payload: Uint8Array]) {
-    [this.id, this.#bytes] = codecs.b64concat(ChallengeRef.format, ...args);
+  constructor(exat: number, ...args: [id: string] | [payload: Uint8Array]) {
+    this.exat = exat;
+    [this.id, this.#bytes] = codec(ChallengeRef.format, ...args);
     this.code = this.id.slice(0, codeLength);
   }
 
-  getToken(options: Required<ExpirationOptions>) {
-    return seal(this.#bytes, options);
+  getToken() {
+    return seal(this.#bytes, { exat: this.exat });
   }
 
   getMnemonic() {
@@ -60,8 +61,8 @@ export class ChallengeRef {
   }
 }
 
-export function getChallengeKey(code: string): string {
-  return `challenge:${code}`;
+export function getChallengeKey(id: string): string {
+  return `challenge:${id.slice(0, codeLength)}`;
 }
 
 export function isValidChallengeCode(maybeCode: string): boolean {

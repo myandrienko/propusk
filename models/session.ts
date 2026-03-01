@@ -1,5 +1,5 @@
 import { nanoid } from "nanoid";
-import * as codecs from "../lib/codecs.ts";
+import { codec } from "../lib/codec.ts";
 import { seal, unseal } from "../lib/seal.ts";
 import { UserRef, type User } from "./user.ts";
 
@@ -13,8 +13,11 @@ export interface Session {
 const sessionIdLength = 24;
 
 export class SessionRef {
-  static readonly format = [...UserRef.format, sessionIdLength] as const;
-  readonly userId: string;
+  static readonly format = [
+    ...UserRef.format,
+    `${sessionIdLength}b64`,
+  ] as const;
+  readonly userRef: UserRef;
   readonly id: string;
   #bytes: Uint8Array;
 
@@ -26,11 +29,10 @@ export class SessionRef {
     return new SessionRef(unseal(token));
   }
 
-  constructor(...args: [userId: string, id: string] | [payload: Uint8Array]) {
-    [this.userId, this.id, this.#bytes] = codecs.b64concat(
-      SessionRef.format,
-      ...args,
-    );
+  constructor(...args: [userTgId: number, id: string] | [payload: Uint8Array]) {
+    let userTgId: number;
+    [userTgId, this.id, this.#bytes] = codec(SessionRef.format, ...args);
+    this.userRef = UserRef.fromTgId(userTgId);
   }
 
   getToken(): string {
@@ -38,6 +40,6 @@ export class SessionRef {
   }
 }
 
-export function getSessionKey(userId: string, sessionId: string): string {
-  return `session:${userId}:${sessionId}`;
+export function getSessionKey(userTgId: number, sessionId: string): string {
+  return `session:${userTgId}:${sessionId}`;
 }

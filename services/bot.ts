@@ -1,17 +1,17 @@
-import type { TelegramUpdate } from "wrappergram";
+import type { TelegramUpdate, TelegramUser } from "wrappergram";
 import { ConflictError, NotFoundError } from "../lib/errors.ts";
-import { hostUserPhoto } from "../lib/photos.ts";
 import * as templates from "../lib/templates.ts";
 import { getTg } from "../lib/tg.ts";
+import { ChallengeRef, isValidChallengeCode } from "../models/challenge.ts";
+import { SessionRef } from "../models/session.ts";
 import { UserRef, type User } from "../models/user.ts";
 import {
-  isChallengeCodeUpdate,
-  isPromptCallbackUpdate,
-  isSignOutCallbackUpdate,
-  type ChallengeCodeUpdate,
-  type TaggedCallbackQuery,
-  type TaggedCallbackUpdate,
+  isDataCallbackUpdate,
+  isTextMessageUpdate,
+  type TgDataCallbackQuery,
+  type TgTextMessageUpdate,
 } from "../models/webhook.ts";
+import { hostUserPhoto } from "../services/photos.ts";
 import {
   deleteChallenge,
   passChallenge,
@@ -25,24 +25,23 @@ export async function handleTgUpdate(update: TelegramUpdate): Promise<boolean> {
   let chatId: number | undefined;
 
   try {
-    if (isChallengeCodeUpdate(update)) {
+    if (isTextMessageUpdate(update)) {
       chatId = update.message.chat.id;
-      await handleChallengeCode(update);
-      return true;
+      const text = update.message.text.trim();
+
+      if (isValidChallengeCode(text)) {
+        return await handleChallengeCode(update, text);
+      }
     }
 
-    if (isPromptCallbackUpdate(update)) {
-      chatId = update.callback_query.message.chat.id;
-      await handlePromptResponse(update);
-      return true;
-    }
-
-    if (isSignOutCallbackUpdate(update)) {
-      chatId = update.callback_query.message.chat.id;
-      await handleSignOut(update);
-      return true;
+    if (isDataCallbackUpdate(update)) {
+      const cq = update.callback_query;
+      chatId = cq.message.chat.id;
+      return await handleCallback(cq);
     }
   } catch (err) {
+    console.error(err);
+
     if (chatId) {
       await tg.api.sendMessage({
         chat_id: chatId,
@@ -58,19 +57,22 @@ export async function handleTgUpdate(update: TelegramUpdate): Promise<boolean> {
 
 // Private
 
-async function handleChallengeCode(update: ChallengeCodeUpdate): Promise<void> {
+async function handleChallengeCode(
+  update: TgTextMessageUpdate,
+  code: string,
+): Promise<true> {
   const tg = getTg();
   let res: ReadChallengeResult;
 
   try {
-    res = await readChallenge(update.message.text);
+    res = await readChallenge(code);
   } catch (err) {
     if (err instanceof NotFoundError) {
       await tg.api.sendMessage({
         chat_id: update.message.chat.id,
         ...templates.challengeNotFound(),
       });
-      return;
+      return true;
     }
 
     throw err;
@@ -78,89 +80,99 @@ async function handleChallengeCode(update: ChallengeCodeUpdate): Promise<void> {
 
   await tg.api.sendMessage({
     chat_id: update.message.chat.id,
-    ...templates.prompt(res),
+    ...templates.prompt({
+      clientHints: res.challenge.clientHints,
+      mnemonic: res.ref.getMnemonic(),
+      token: res.ref.getToken(),
+    }),
   });
+  return true;
 }
 
-async function handlePromptResponse(
-  update: TaggedCallbackUpdate,
-): Promise<void> {
+async function handleCallback(cq: TgDataCallbackQuery): Promise<boolean> {
   const tg = getTg();
-  const cq = update.callback_query;
-  const [action, token] = cq.data.split(":");
 
   try {
-    await (action === "y"
-      ? handlePromptConfirm(cq, token)
-      : handlePromptReject(cq, token));
+    switch (cq.data.slice(0, 2)) {
+      case "y:":
+        return await handlePromptConfirm(cq, cq.data.slice(2));
+      case "n:":
+        return await handlePromptReject(cq, cq.data.slice(2));
+      case "d:":
+        return await handleSignOut(cq, cq.data.slice(2));
+      default:
+        return false;
+    }
   } finally {
     await tg.api.answerCallbackQuery({ callback_query_id: cq.id });
   }
 }
 
 async function handlePromptConfirm(
-  cq: TaggedCallbackQuery,
+  cq: TgDataCallbackQuery,
   token: string,
-): Promise<void> {
+): Promise<true> {
   const tg = getTg();
-  const userRef = UserRef.fromTgId(cq.from.id);
+  const challengeRef = ChallengeRef.fromToken(token);
+  const user = await fromTgUser(cq.from);
 
-  const user: User = {
-    id: userRef.id,
-    name: [cq.from.first_name, cq.from.last_name].filter(Boolean).join(" "),
-    lang: cq.from.language_code ?? "en",
-    image: await hostUserPhoto(userRef),
-  };
-
-  const res = await passChallenge(token, user).catch(async (err) => {
+  try {
+    const res = await passChallenge(challengeRef, user);
+    const sessionToken = res.provisionalSessionRef.getToken();
+    await tg.api.editMessageText({
+      chat_id: cq.message.chat.id,
+      message_id: cq.message.message_id,
+      ...templates.promptConfirmed(sessionToken),
+    });
+  } catch (err) {
     if (err instanceof NotFoundError || err instanceof ConflictError) {
       await tg.api.editMessageText({
         chat_id: cq.message.chat.id,
         message_id: cq.message.message_id,
         ...templates.promptExpired(),
       });
-
-      return null;
+    } else {
+      throw err;
     }
-
-    throw err;
-  });
-
-  if (res) {
-    await tg.api.editMessageText({
-      chat_id: cq.message.chat.id,
-      message_id: cq.message.message_id,
-      ...templates.promptConfirmed(res.provisionalSessionToken),
-    });
   }
+
+  return true;
 }
 
 async function handlePromptReject(
-  cq: TaggedCallbackQuery,
+  cq: TgDataCallbackQuery,
   token: string,
-): Promise<void> {
+): Promise<true> {
   const tg = getTg();
-  await deleteChallenge(token);
+  const challengeRef = ChallengeRef.fromToken(token);
+  await deleteChallenge(challengeRef);
   await tg.api.editMessageText({
     chat_id: cq.message.chat.id,
     message_id: cq.message.message_id,
     ...templates.promptRejected(),
   });
+  return true;
 }
 
-async function handleSignOut(update: TaggedCallbackUpdate): Promise<void> {
+async function handleSignOut(
+  cq: TgDataCallbackQuery,
+  token: string,
+): Promise<true> {
   const tg = getTg();
-  const cq = update.callback_query;
-  const [, token] = cq.data.split(":");
+  const sessionRef = SessionRef.fromToken(token);
+  await deleteSession(sessionRef);
+  await tg.api.editMessageText({
+    chat_id: cq.message.chat.id,
+    message_id: cq.message.message_id,
+    ...templates.signedOut(),
+  });
+  return true;
+}
 
-  try {
-    await deleteSession(token);
-    await tg.api.editMessageText({
-      chat_id: cq.message.chat.id,
-      message_id: cq.message.message_id,
-      ...templates.signedOut(),
-    });
-  } finally {
-    await tg.api.answerCallbackQuery({ callback_query_id: cq.id });
-  }
+async function fromTgUser(tgUser: TelegramUser): Promise<User> {
+  const userRef = UserRef.fromTgId(tgUser.id);
+  const image = await hostUserPhoto(userRef);
+  const name = [tgUser.first_name, tgUser.last_name].filter(Boolean).join(" ");
+  const lang = tgUser.language_code ?? "en";
+  return { tgId: tgUser.id, name, lang, image };
 }

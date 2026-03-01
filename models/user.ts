@@ -1,30 +1,29 @@
 import { sha256 } from "@noble/hashes/sha2.js";
-import { hex } from "@scure/base";
-import * as codecs from "../lib/codecs.ts";
+import { base64urlnopad, hex } from "@scure/base";
+import { codec } from "../lib/codec.ts";
 import { seal, unseal } from "../lib/seal.ts";
 
 export interface User {
-  id: string;
+  tgId: number;
   name: string;
   lang: string;
   image?: string;
 }
 
 export class UserRef {
-  // Sealed representation of float64 is 11 base64 characters
-  static readonly format = [11] as const;
+  static readonly format = ["f64"] as const;
 
   readonly id: string;
   readonly tgId: number;
   #bytes: Uint8Array;
 
   static fromId(id: string): UserRef {
-    const [tgId, bytes] = codecs.f64(unseal(id));
+    const [tgId, bytes] = codec(UserRef.format, unseal(id));
     return new UserRef({ id, tgId, bytes });
   }
 
   static fromTgId(tgId: number): UserRef {
-    const [, bytes] = codecs.f64(tgId);
+    const [, bytes] = codec(UserRef.format, tgId);
     return new UserRef({ id: seal(bytes), tgId, bytes });
   }
 
