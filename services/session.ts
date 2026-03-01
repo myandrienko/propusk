@@ -85,11 +85,30 @@ export async function refreshSession(
   };
 }
 
+export async function listSessions(userRef: UserRef): Promise<Session[]> {
+  const redis = getRedis();
+  const pattern = getSessionKey(userRef.tgId, "*");
+  const keys: string[] = [];
+
+  let cursor = "0";
+  do {
+    const [nextCursor, batch] = await redis.scan(cursor, { match: pattern });
+    keys.push(...batch);
+    cursor = nextCursor;
+  } while (cursor !== "0");
+
+  if (keys.length === 0) {
+    return [];
+  }
+
+  const sessions = await redis.mget<(Session | null)[]>(...keys);
+  return sessions.filter((v): v is Session => v !== null);
+}
+
 export async function deleteSession(ref: SessionRef): Promise<void> {
   // Session could have been provisional, i.e. session token was generated
-  // when the challenge had been passed, but the challenge hasn't been
-  // consumed yet. To cover this case, we try deleting both the session
-  // and the challenge:
+  // when the challenge had been passed, but hasn't been consumed yet.
+  // To cover this case, we try deleting both the session and the challenge:
   const sessionKey = getSessionKey(ref.userRef.tgId, ref.id);
   const challengeKey = getChallengeKey(ref.id);
   const res = await getRedis().del(sessionKey, challengeKey);
