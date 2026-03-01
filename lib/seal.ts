@@ -7,8 +7,8 @@ import { unix } from "./time.ts";
 import { e } from "./try.ts";
 
 export type ExpirationCheckOptions =
-  | { expires?: false }
-  | { expires: true; clockTolerance?: number; now?: number };
+  | ExpirationCheckNotRequiredOptions
+  | ExpirationCheckRequiredOptions;
 
 export interface ExpirationOptions {
   exat?: number;
@@ -16,8 +16,16 @@ export interface ExpirationOptions {
 
 export function unseal(
   sealed: string,
+  options?: ExpirationCheckNotRequiredOptions,
+): Uint8Array;
+export function unseal(
+  sealed: string,
+  options: ExpirationCheckRequiredOptions,
+): [exat: number, unsealed: Uint8Array];
+export function unseal(
+  sealed: string,
   options: ExpirationCheckOptions = {},
-): Uint8Array {
+): Uint8Array | [exat: number, unsealed: Uint8Array] {
   const bytes = e.try(
     () => base64urlnopad.decode(sealed),
     () => new InvalidSealedValueError("Sealed value is malformed"),
@@ -25,9 +33,10 @@ export function unseal(
 
   let nonce = new Uint8Array(gcmsiv.nonceLength);
   let ct = bytes;
+  let exat: number | undefined;
 
   if (options.expires) {
-    const exat = createView(bytes).getUint32(0);
+    exat = createView(bytes).getUint32(0);
 
     if (exat + (options.clockTolerance ?? 0) < (options.now ?? unix())) {
       throw new InvalidSealedValueError("Sealed value expired");
@@ -38,10 +47,12 @@ export function unseal(
     ct = bytes.subarray(timestampSize);
   }
 
-  return e.try(
+  const unsealed = e.try(
     () => gcmsiv(getSealKey(), nonce).decrypt(ct),
     () => new InvalidSealedValueError("Sealed value is invalid"),
   );
+
+  return options.expires ? [exat!, unsealed] : unsealed;
 }
 
 export function seal(
@@ -72,6 +83,20 @@ export class InvalidSealedValueError extends UnauthorizedError {
 }
 
 // Private
+
+interface BaseExpirationCheckOptions {
+  expires?: boolean;
+}
+
+interface ExpirationCheckNotRequiredOptions extends BaseExpirationCheckOptions {
+  expires?: false;
+}
+
+interface ExpirationCheckRequiredOptions extends BaseExpirationCheckOptions {
+  expires: true;
+  clockTolerance?: number;
+  now?: number;
+}
 
 function getSealKey() {
   return env.SEAL_KEY.hex(32);

@@ -15,7 +15,7 @@ it("seals and unseals", () => {
 it("seals with expiration and unseals", () => {
   const sealed = seal(payload, { exat: now + 60 });
   assert.equal(typeof sealed, "string");
-  assert.deepEqual(unseal(sealed, { expires: true, now }), payload);
+  assert.deepEqual(unseal(sealed, { expires: true, now }), [now + 60, payload]);
 });
 
 it("throws when expired", () => {
@@ -32,7 +32,7 @@ it("allows expired value within clock tolerance", () => {
   assert.equal(typeof sealed, "string");
   assert.deepEqual(
     unseal(sealed, { expires: true, now: now + 5, clockTolerance: 5 }),
-    payload,
+    [now, payload],
   );
 });
 
