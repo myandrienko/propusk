@@ -1,9 +1,15 @@
-import { getRedis } from "./redis.ts";
 import { sha1 } from "@noble/hashes/legacy.js";
 import { hex } from "@scure/base";
+import { ConflictError, NotFoundError } from "./errors.ts";
+import { getRedis } from "./redis.ts";
 
 export interface Script<T extends (...args: any[]) => unknown> {
   (keys: string[], ...args: Parameters<T>): Promise<ReturnType<T>>;
+}
+
+export interface ErrorMessages {
+  notFound: string;
+  conflict: string;
 }
 
 export function script<T extends (...args: any[]) => unknown>(
@@ -13,6 +19,23 @@ export function script<T extends (...args: any[]) => unknown>(
   const src = String.raw({ raw: template }, substitutions).trim();
   const cachedScript = new CachedScript<T>(src);
   return cachedScript.exec.bind(cachedScript);
+}
+
+export function mapScriptError(
+  err: unknown,
+  messages: Partial<ErrorMessages> = {},
+): Error | undefined {
+  if (err instanceof Error) {
+    if (err.message.includes("NOTFOUND")) {
+      return new NotFoundError(messages.notFound ?? "Entity not found");
+    }
+
+    if (err.message.includes("CONFLICT")) {
+      return new ConflictError(
+        messages.conflict ?? "Conflict on updating entity",
+      );
+    }
+  }
 }
 
 // Private
