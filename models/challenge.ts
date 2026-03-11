@@ -55,7 +55,7 @@ export class ChallengeRef {
     // Length of entropy for BIP39 must be a multiple of 4:
     const entropyLength = Math.trunc(this.#asBytes().length / 4) * 4;
     const entropy = this.#asBytes().slice(0, entropyLength);
-    return bip39.entropyToMnemonic(entropy, wordlist);
+    return bip39.entropyToMnemonic(entropy, wordlist).split(" ");
   }
 }
 

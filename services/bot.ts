@@ -1,5 +1,6 @@
 import type { TelegramUpdate, TelegramUser } from "wrappergram";
 import { ConflictError, NotFoundError } from "../lib/errors.ts";
+import { pick } from "../lib/random.ts";
 import * as templates from "./templates.ts";
 import { getTg } from "../lib/tg.ts";
 import { ChallengeRef, isValidChallengeCode } from "../models/challenge.ts";
@@ -30,8 +31,12 @@ export async function handleTgUpdate(update: TelegramUpdate): Promise<boolean> {
       chatId = update.message.chat.id;
       const text = update.message.text.trim();
 
-      if (isValidChallengeCode(text)) {
-        return await handleChallengeCode(update, text);
+      const code = text.startsWith("/start ")
+        ? text.slice("/start ".length).trim()
+        : text;
+
+      if (isValidChallengeCode(code)) {
+        return await handleChallengeCode(update, code);
       }
     }
 
@@ -79,12 +84,16 @@ async function handleChallengeCode(
     throw err;
   }
 
+  const mnemonic = res.ref.getMnemonic();
+  const verifiers = pick([...mnemonic], 3);
+
   await tg.api.sendMessage({
     chat_id: update.message.chat.id,
     ...templates.prompt({
       clientHints: res.challenge.clientHints,
-      mnemonic: res.ref.getMnemonic(),
       token: res.ref.getToken(),
+      verifiers,
+      hint: mnemonic.indexOf(verifiers[0]),
     }),
   });
   return true;
@@ -97,8 +106,11 @@ async function handleCallback(cq: TgDataCallbackQuery): Promise<boolean> {
     switch (cq.data.slice(0, 2)) {
       case "y:":
         return await handlePromptConfirm(cq, cq.data.slice(2));
+      case "w:":
       case "n:":
-        return await handlePromptReject(cq, cq.data.slice(2));
+        return await handlePromptFailed(cq, cq.data.slice(2), {
+          reason: cq.data[0] === "w" ? "unverified" : "rejected",
+        });
       case "d:":
         return await handleSignOut(cq, cq.data.slice(2));
       default:
@@ -140,9 +152,10 @@ async function handlePromptConfirm(
   return true;
 }
 
-async function handlePromptReject(
+async function handlePromptFailed(
   cq: TgDataCallbackQuery,
   token: string,
+  { reason }: { reason: "rejected" | "unverified" },
 ): Promise<true> {
   const tg = getTg();
 
@@ -152,7 +165,9 @@ async function handlePromptReject(
     await tg.api.editMessageText({
       chat_id: cq.message.chat.id,
       message_id: cq.message.message_id,
-      ...templates.promptRejected(),
+      ...(reason === "unverified"
+        ? templates.promptUnverified()
+        : templates.promptRejected()),
     });
   } catch (err) {
     if (

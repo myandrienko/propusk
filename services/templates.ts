@@ -1,7 +1,7 @@
 import { bold, code, format, italic } from "@gramio/format";
-import type { TelegramMessageEntity } from "wrappergram";
-import type { ReadChallengeResult } from "./challenge.ts";
 import { InlineKeyboard } from "@gramio/keyboards";
+import type { TelegramMessageEntity } from "wrappergram";
+import { pick } from "../lib/random.ts";
 
 export interface MessageTemplate {
   text: string;
@@ -17,22 +17,32 @@ export function challengeNotFound(): MessageTemplate {
   `;
 }
 
-export function prompt(strings: {
+export function prompt(vars: {
   clientHints?: string;
-  mnemonic: string;
   token: string;
+  verifiers: string[];
+  hint: number;
 }): MessageTemplate {
+  const verifier = vars.verifiers[0];
+
   return {
     ...format`
-      ${bold`You’re about to sign in.`} Once confirmed, you’ll be signed in on ${italic`${strings.clientHints}`}.
-      
-      Only confirm if this is your device, and the magic phrase matches what you see on screen:
-      
-      ${code`${strings.mnemonic}`}
+      ${bold`You’re about to sign in.`} Once confirmed, you’ll be signed in on ${italic`${vars.clientHints}`}.
+
+      To confirm, press the button matching the ${bold`${ordinal(vars.hint + 1)}`} word in the magic phrase.
     `,
     reply_markup: new InlineKeyboard()
-      .text("Sign In", `y:${strings.token}`, { style: "success" })
-      .text("Cancel", `n:${strings.token}`, { style: "danger" }),
+      .add(
+        ...pick(vars.verifiers).map((word) =>
+          InlineKeyboard.text(
+            word,
+            `${word === verifier ? "y" : "w"}:${vars.token}`,
+            { style: "primary" },
+          ),
+        ),
+      )
+      .row()
+      .text("Cancel", `n:${vars.token}`),
   };
 }
 
@@ -49,6 +59,12 @@ export function promptConfirmed(token: string): MessageTemplate {
     `,
     reply_markup: new InlineKeyboard().text("Sign Out", `d:${token}`),
   };
+}
+
+export function promptUnverified(): MessageTemplate {
+  return format`
+    ${bold`Authentication attempt cancelled.`} Your pick didn’t match the magic phrase. If you still want to sign in, start over with a new authentication code.
+  `;
 }
 
 export function promptRejected(): MessageTemplate {
@@ -69,4 +85,19 @@ export function error(err: unknown): MessageTemplate {
         
     ${code`${err instanceof Error ? err.message : "Unknown error"}`}
   `;
+}
+
+// Private
+
+function ordinal(n: number): string {
+  const suffixes: Partial<Record<Intl.LDMLPluralRule, string>> = {
+    one: "st",
+    two: "nd",
+    few: "rd",
+    other: "th",
+  };
+
+  return `${n}${
+    suffixes[new Intl.PluralRules("en-US", { type: "ordinal" }).select(n)]
+  }`;
 }
