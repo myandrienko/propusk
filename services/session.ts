@@ -1,4 +1,4 @@
-import { SignJWT } from "jose";
+import { jwtVerify, SignJWT } from "jose";
 import { env } from "../lib/env.ts";
 import { NotFoundError } from "../lib/errors.ts";
 import { getRedis } from "../lib/redis.ts";
@@ -19,6 +19,15 @@ export interface CreateSessionInit {
 export interface SessionTokens {
   accessToken: string;
   refreshToken: string;
+}
+
+export interface AccessTokenJwtPayload {
+  iss: "propusk";
+  sub: string;
+  exp: number;
+  name: string;
+  lang: string;
+  image?: string;
 }
 
 export async function createSession(
@@ -85,6 +94,16 @@ export async function refreshSession(
   };
 }
 
+export async function verifyAccessToken(
+  token: string,
+): Promise<AccessTokenJwtPayload> {
+  const { payload } = await jwtVerify<AccessTokenJwtPayload>(
+    token,
+    getJwtSecret(),
+  );
+  return payload;
+}
+
 export async function listSessions(userRef: UserRef): Promise<Session[]> {
   const redis = getRedis();
   const pattern = getSessionKey(userRef.tgId, "*");
@@ -119,15 +138,6 @@ export async function deleteSession(ref: SessionRef): Promise<void> {
 }
 
 // Private
-
-interface AccessTokenJwtPayload {
-  iss: "propusk";
-  sub: string;
-  exp: number;
-  name: string;
-  lang: string;
-  image?: string;
-}
 
 const refreshTokenTtl = 90 * 24 * 60 * 60; // 30 days
 const accessTokenTtl = 60; // 1 minute
