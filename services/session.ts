@@ -8,13 +8,11 @@ import { e } from "../lib/try.ts";
 import { getChallengeKey } from "../models/challenge.ts";
 import { RefreshNonce } from "../models/refresh.ts";
 import { getSessionKey, SessionRef, type Session } from "../models/session.ts";
-import type { User, UserRef } from "../models/user.ts";
+import { getUserKey, type User, type UserRef } from "../models/user.ts";
 
-export interface CreateSessionInit {
-  sessionId?: string;
-  user: User;
-  clientHints?: string;
-}
+export type CreateSessionInit =
+  | CreateSessionWithKnownRefInit
+  | CreateSessionForUserInit;
 
 export interface SessionTokens {
   accessToken: string;
@@ -34,28 +32,39 @@ export async function createSession(
   init: CreateSessionInit,
 ): Promise<SessionTokens> {
   const redis = getRedis();
-  const sessionId = init.sessionId ?? SessionRef.provision();
-  const key = getSessionKey(init.user.tguid, sessionId);
+  const [sessionId, tguid] =
+    "sessionRef" in init
+      ? [init.sessionRef.id, init.sessionRef.userRef.tguid]
+      : [SessionRef.provision(), init.userRef.tguid];
+  const sessionKey = getSessionKey(tguid, sessionId);
+  const userKey = getUserKey(tguid);
   const exat = unix() + refreshTokenTtl;
 
   const refresh = new RefreshNonce(
     exat,
-    init.user.tguid,
+    tguid,
     sessionId,
     RefreshNonce.provision(),
   );
 
   const session: Session = {
-    user: init.user,
+    tguid,
     clientHints: init.clientHints,
     createdAt: unix(),
     nonce: refresh.nonce,
   };
 
-  await redis.set(key, session, { exat });
+  const [user] = await Promise.all([
+    redis.get<User>(userKey),
+    redis.set(sessionKey, session, { exat }),
+  ]);
+
+  if (!user) {
+    throw new NotFoundError("User not found");
+  }
 
   return {
-    accessToken: await signAccessToken(refresh.sessionRef.userRef, init.user),
+    accessToken: await signAccessToken(refresh.sessionRef.userRef, user),
     refreshToken: refresh.getToken(),
   };
 }
@@ -63,28 +72,40 @@ export async function createSession(
 export async function refreshSession(
   refresh: RefreshNonce,
 ): Promise<SessionTokens> {
+  const redis = getRedis();
   const tguid = refresh.sessionRef.userRef.tguid;
   const sessionId = refresh.sessionRef.id;
-  const key = getSessionKey(tguid, sessionId);
+  const sessionKey = getSessionKey(tguid, sessionId);
+  const userKey = getUserKey(tguid);
   const nextNonce = RefreshNonce.provision();
   const nextExat = unix() + refreshTokenTtl;
 
-  const session = await e.try(
-    () => doRefreshSession([key], refresh.nonce, nextNonce, refreshTokenTtl),
-    (err) =>
-      mapScriptError(err, {
-        notFound: "Session not found",
-        conflict: "Refresh token already used",
-      }),
-  );
+  const [user] = await Promise.all([
+    redis.get<User>(userKey),
+    e.try(
+      () =>
+        doRefreshSession(
+          [sessionKey],
+          refresh.nonce,
+          nextNonce,
+          refreshTokenTtl,
+        ),
+      (err) =>
+        mapScriptError(err, {
+          notFound: "Session not found",
+          conflict: "Refresh token already used",
+        }),
+    ),
+  ]);
+
+  if (!user) {
+    throw new NotFoundError("User not found");
+  }
 
   const nextRefresh = new RefreshNonce(nextExat, tguid, sessionId, nextNonce);
 
   return {
-    accessToken: await signAccessToken(
-      refresh.sessionRef.userRef,
-      session.user,
-    ),
+    accessToken: await signAccessToken(refresh.sessionRef.userRef, user),
     refreshToken: nextRefresh.getToken(),
   };
 }
@@ -133,6 +154,18 @@ export async function deleteSession(ref: SessionRef): Promise<void> {
 }
 
 // Private
+
+interface BaseCreateChallengeInit {
+  clientHints?: string;
+}
+
+interface CreateSessionWithKnownRefInit extends BaseCreateChallengeInit {
+  sessionRef: SessionRef;
+}
+
+interface CreateSessionForUserInit extends BaseCreateChallengeInit {
+  userRef: UserRef;
+}
 
 const refreshTokenTtl = 90 * 24 * 60 * 60; // 30 days
 const accessTokenTtl = 60; // 1 minute

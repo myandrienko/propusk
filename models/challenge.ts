@@ -2,9 +2,7 @@ import * as bip39 from "@scure/bip39";
 import { wordlist } from "@scure/bip39/wordlists/english.js";
 import { customAlphabet, urlAlphabet } from "nanoid";
 import { codec } from "../lib/codec.ts";
-import { UnauthorizedError } from "../lib/errors.ts";
 import { seal, unseal } from "../lib/seal.ts";
-import type { User } from "./user.ts";
 
 export type Challenge = PendingChallenge | PassedChallenge;
 export type ChallengeStatus = "pending" | "passed";
@@ -15,7 +13,7 @@ export interface PendingChallenge extends BaseChallenge {
 
 export interface PassedChallenge extends BaseChallenge {
   status: "passed";
-  user: User;
+  tguid: number;
 }
 
 const codeLength = 8;

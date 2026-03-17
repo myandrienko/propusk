@@ -12,7 +12,7 @@ import {
   type PendingChallenge,
 } from "../models/challenge.ts";
 import { SessionRef } from "../models/session.ts";
-import { type User } from "../models/user.ts";
+import { getUserKey, type User } from "../models/user.ts";
 import { createSession } from "./session.ts";
 
 export interface CreateChallengeInit {
@@ -97,8 +97,7 @@ export async function tryConsumeChallenge(
     // useful for signing out using provisional session token: deleting both
     // challenge and session using the same id ensures session is either
     // deleted or will not be created.
-    sessionId: challenge.id,
-    user: challenge.user,
+    sessionRef: new SessionRef(challenge.tguid, challenge.id),
     clientHints: challenge.clientHints,
   });
 
@@ -109,16 +108,21 @@ export async function passChallenge(
   ref: ChallengeRef,
   user: User,
 ): Promise<PassChallengeResult> {
-  const key = getChallengeKey(ref.code);
+  const redis = getRedis();
+  const sessionKey = getChallengeKey(ref.code);
+  const userKey = getUserKey(user.tguid);
 
-  const challenge = await e.try(
-    () => doPassChallenge([key], ref.id, JSON.stringify(user)),
-    (err) =>
-      mapScriptError(err, {
-        notFound: "Challenge not found",
-        conflict: "Challenge already passed",
-      }),
-  );
+  const [, challenge] = await Promise.all([
+    redis.set(userKey, user),
+    e.try(
+      () => doPassChallenge([sessionKey], ref.id, user.tguid),
+      (err) =>
+        mapScriptError(err, {
+          notFound: "Challenge not found",
+          conflict: "Challenge already passed",
+        }),
+    ),
+  ]);
 
   const provisionalSessionRef = new SessionRef(user.tguid, ref.id);
   return { challenge, provisionalSessionRef };
@@ -177,7 +181,7 @@ redis.call('DEL', KEYS[1])
 return challenge_json
 `;
 
-const doPassChallenge = script<(id: string, user: string) => PassedChallenge>`
+const doPassChallenge = script<(id: string, tguid: number) => PassedChallenge>`
 ${ensureChallenge("challenge")}
 
 if challenge.status ~= 'pending' then
@@ -185,7 +189,7 @@ if challenge.status ~= 'pending' then
 end
 
 challenge.status = 'passed'
-challenge.user = cjson.decode(ARGV[2])
+challenge.tguid = tonumber(ARGV[2])
 local json = cjson.encode(challenge)
 redis.call('SET', KEYS[1], json, 'KEEPTTL')
 return json

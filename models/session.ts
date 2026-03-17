@@ -4,7 +4,7 @@ import { seal, unseal } from "../lib/seal.ts";
 import { UserRef, type User } from "./user.ts";
 
 export interface Session {
-  user: User;
+  tguid: number;
   clientHints?: string;
   createdAt: number;
   nonce: string;
