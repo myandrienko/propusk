@@ -93,7 +93,11 @@ export function codec<const F extends readonly FormatSpecifier[]>(
     return [...(decode(payload) as PartsFromFormat<F>), () => payload];
   }
 
-  return [...(parts as PartsFromFormat<F>), () => encode(...parts)];
+  let payload: Uint8Array | undefined;
+  return [
+    ...(parts as PartsFromFormat<F>),
+    () => (payload ??= encode(...parts)),
+  ];
 }
 
 export class CodecFormatError extends Error {
