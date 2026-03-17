@@ -1,10 +1,10 @@
 import { sha256 } from "@noble/hashes/sha2.js";
-import { base64urlnopad, hex } from "@scure/base";
+import { hex } from "@scure/base";
 import { codec } from "../lib/codec.ts";
 import { seal, unseal } from "../lib/seal.ts";
 
 export interface User {
-  tgId: number;
+  tguid: number;
   name: string;
   lang: string;
   image?: string;
@@ -13,24 +13,19 @@ export interface User {
 export class UserRef {
   static readonly format = ["f64"] as const;
 
-  readonly id: string;
-  readonly tgId: number;
+  readonly tguid: number;
   #asBytes: () => Uint8Array;
 
-  static fromId(id: string): UserRef {
-    const [tgId, asBytes] = codec(UserRef.format, unseal(id));
-    return new UserRef({ id, tgId, asBytes });
+  static fromPuid(id: string): UserRef {
+    return new UserRef(unseal(id));
   }
 
-  static fromTgId(tgId: number): UserRef {
-    const [, asBytes] = codec(UserRef.format, tgId);
-    return new UserRef({ id: seal(asBytes()), tgId, asBytes });
+  constructor(...args: [tguid: number] | [payload: Uint8Array]) {
+    [this.tguid, this.#asBytes] = codec(UserRef.format, ...args);
   }
 
-  private constructor(init: UserRefInit) {
-    this.id = init.id;
-    this.tgId = init.tgId;
-    this.#asBytes = init.asBytes;
+  getPuid(): string {
+    return seal(this.#asBytes());
   }
 
   digest(): string {
@@ -38,10 +33,6 @@ export class UserRef {
   }
 }
 
-// Private
-
-interface UserRefInit {
-  id: string;
-  tgId: number;
-  asBytes: () => Uint8Array;
+export function getUserKey(tguid: number): string {
+  return `user:${tguid}`;
 }

@@ -35,12 +35,12 @@ export async function createSession(
 ): Promise<SessionTokens> {
   const redis = getRedis();
   const sessionId = init.sessionId ?? SessionRef.provision();
-  const key = getSessionKey(init.user.tgId, sessionId);
+  const key = getSessionKey(init.user.tguid, sessionId);
   const exat = unix() + refreshTokenTtl;
 
   const refresh = new RefreshNonce(
     exat,
-    init.user.tgId,
+    init.user.tguid,
     sessionId,
     RefreshNonce.provision(),
   );
@@ -63,9 +63,9 @@ export async function createSession(
 export async function refreshSession(
   refresh: RefreshNonce,
 ): Promise<SessionTokens> {
-  const userTgId = refresh.sessionRef.userRef.tgId;
+  const tguid = refresh.sessionRef.userRef.tguid;
   const sessionId = refresh.sessionRef.id;
-  const key = getSessionKey(userTgId, sessionId);
+  const key = getSessionKey(tguid, sessionId);
   const nextNonce = RefreshNonce.provision();
   const nextExat = unix() + refreshTokenTtl;
 
@@ -78,12 +78,7 @@ export async function refreshSession(
       }),
   );
 
-  const nextRefresh = new RefreshNonce(
-    nextExat,
-    userTgId,
-    sessionId,
-    nextNonce,
-  );
+  const nextRefresh = new RefreshNonce(nextExat, tguid, sessionId, nextNonce);
 
   return {
     accessToken: await signAccessToken(
@@ -106,7 +101,7 @@ export async function verifyAccessToken(
 
 export async function listSessions(userRef: UserRef): Promise<Session[]> {
   const redis = getRedis();
-  const pattern = getSessionKey(userRef.tgId, "*");
+  const pattern = getSessionKey(userRef.tguid, "*");
   const keys: string[] = [];
 
   let cursor = "0";
@@ -128,7 +123,7 @@ export async function deleteSession(ref: SessionRef): Promise<void> {
   // Session could have been provisional, i.e. session token was generated
   // when the challenge had been passed, but hasn't been consumed yet.
   // To cover this case, we try deleting both the session and the challenge:
-  const sessionKey = getSessionKey(ref.userRef.tgId, ref.id);
+  const sessionKey = getSessionKey(ref.userRef.tguid, ref.id);
   const challengeKey = getChallengeKey(ref.id);
   const res = await getRedis().del(sessionKey, challengeKey);
 
@@ -147,7 +142,7 @@ function signAccessToken(ref: UserRef, user: User) {
 
   return new SignJWT({
     iss: "propusk",
-    sub: ref.id,
+    sub: ref.getPuid(),
     exp: exat,
     name: user.name,
     lang: user.lang,

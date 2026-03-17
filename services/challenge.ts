@@ -12,7 +12,7 @@ import {
   type PendingChallenge,
 } from "../models/challenge.ts";
 import { SessionRef } from "../models/session.ts";
-import { UserRef, type User } from "../models/user.ts";
+import { type User } from "../models/user.ts";
 import { createSession } from "./session.ts";
 
 export interface CreateChallengeInit {
@@ -120,7 +120,7 @@ export async function passChallenge(
       }),
   );
 
-  const provisionalSessionRef = new SessionRef(user.tgId, ref.id);
+  const provisionalSessionRef = new SessionRef(user.tguid, ref.id);
   return { challenge, provisionalSessionRef };
 }
 

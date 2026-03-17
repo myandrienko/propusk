@@ -41,7 +41,7 @@ for (let i = 0; ; i++) {
 console.log("Listing sessions");
 
 const payload = await verifyAccessToken(tokens.accessToken);
-const userRef = UserRef.fromId(payload.sub);
+const userRef = UserRef.fromPuid(payload.sub);
 const sessions = await listSessions(userRef);
 console.log("Sessions:", sessions);
 

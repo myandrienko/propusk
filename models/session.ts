@@ -29,10 +29,10 @@ export class SessionRef {
     return new SessionRef(unseal(token));
   }
 
-  constructor(...args: [userTgId: number, id: string] | [payload: Uint8Array]) {
-    let userTgId: number;
-    [userTgId, this.id, this.#asBytes] = codec(SessionRef.format, ...args);
-    this.userRef = UserRef.fromTgId(userTgId);
+  constructor(...args: [tguid: number, id: string] | [payload: Uint8Array]) {
+    let tguid: number;
+    [tguid, this.id, this.#asBytes] = codec(SessionRef.format, ...args);
+    this.userRef = new UserRef(tguid);
   }
 
   getToken(): string {
@@ -40,6 +40,6 @@ export class SessionRef {
   }
 }
 
-export function getSessionKey(userTgId: number, sessionId: string): string {
-  return `session:${userTgId}:${sessionId}`;
+export function getSessionKey(tguid: number, sessionId: string): string {
+  return `session:${tguid}:${sessionId}`;
 }

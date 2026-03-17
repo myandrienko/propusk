@@ -23,17 +23,17 @@ export class RefreshNonce {
   constructor(
     exat: number,
     ...args:
-      | [userTgId: number, sessionId: string, nonce: string]
+      | [tguid: number, sessionId: string, nonce: string]
       | [payload: Uint8Array]
   ) {
     this.exat = exat;
-    let userTgId: number;
+    let tguid: number;
     let sessionId: string;
-    [userTgId, sessionId, this.nonce, this.#asBytes] = codec(
+    [tguid, sessionId, this.nonce, this.#asBytes] = codec(
       RefreshNonce.format,
       ...args,
     );
-    this.sessionRef = new SessionRef(userTgId, sessionId);
+    this.sessionRef = new SessionRef(tguid, sessionId);
   }
 
   getToken(): string {

@@ -10,7 +10,7 @@ import type { UserRef } from "../models/user.ts";
  * or cannot be uploaded to Vercel Blob.
  */
 export async function hostUserPhoto(ref: UserRef): Promise<string | undefined> {
-  const photo = await fetchPhoto(ref.tgId);
+  const photo = await fetchPhoto(ref.tguid);
 
   if (!photo) {
     return undefined;
@@ -30,9 +30,9 @@ export class UserPhotoUploadError extends Error {
 const preferredPhotoSize = 256;
 
 async function fetchPhoto(
-  tgUserId: number,
+  tguid: number,
 ): Promise<{ body: ReadableStream; ext: string } | undefined> {
-  const fileId = await getPhotoFileId(tgUserId);
+  const fileId = await getPhotoFileId(tguid);
 
   if (!fileId) {
     return undefined;
@@ -77,10 +77,10 @@ async function uploadToBlob(
   }
 }
 
-async function getPhotoFileId(tgUserId: number): Promise<string | undefined> {
+async function getPhotoFileId(tguid: number): Promise<string | undefined> {
   const tg = getTg();
   const res = await tg.api.getUserProfilePhotos({
-    user_id: tgUserId,
+    user_id: tguid,
     limit: 1,
   });
 

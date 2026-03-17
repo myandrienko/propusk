@@ -191,10 +191,10 @@ async function handleSignOut(
   return true;
 }
 
-async function fromTgUser(tgUser: TelegramUser): Promise<User> {
-  const userRef = UserRef.fromTgId(tgUser.id);
+async function fromTgUser(tgu: TelegramUser): Promise<User> {
+  const userRef = new UserRef(tgu.id);
   const image = await hostUserPhoto(userRef);
-  const name = [tgUser.first_name, tgUser.last_name].filter(Boolean).join(" ");
-  const lang = tgUser.language_code ?? "en";
-  return { tgId: tgUser.id, name, lang, image };
+  const name = [tgu.first_name, tgu.last_name].filter(Boolean).join(" ");
+  const lang = tgu.language_code ?? "en";
+  return { tguid: tgu.id, name, lang, image };
 }
