@@ -4,55 +4,54 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+catalogs:
+  default:
+    '@noble/ciphers':
+      specifier: ^2.1.1
+      version: 2.1.1
+    '@noble/hashes':
+      specifier: ^2.0.1
+      version: 2.0.1
+    '@scure/base':
+      specifier: ^2.0.0
+      version: 2.0.0
+    '@scure/bip39':
+      specifier: ^2.0.1
+      version: 2.0.1
+    '@types/node':
+      specifier: ^20
+      version: 20.19.33
+    jose:
+      specifier: ^6.1.3
+      version: 6.1.3
+    nanoid:
+      specifier: ^5.1.6
+      version: 5.1.6
+    typescript:
+      specifier: ^5
+      version: 5.9.3
+
 importers:
 
-  .:
+  .: {}
+
+  demo-app:
     dependencies:
-      '@gramio/format':
-        specifier: ^0.3.4
-        version: 0.3.4
-      '@gramio/keyboards':
-        specifier: ^1.3.0
-        version: 1.3.0
-      '@noble/ciphers':
-        specifier: ^2.1.1
-        version: 2.1.1
-      '@noble/hashes':
-        specifier: ^2.0.1
-        version: 2.0.1
-      '@scure/base':
-        specifier: ^2.0.0
-        version: 2.0.0
-      '@scure/bip39':
-        specifier: ^2.0.1
-        version: 2.0.1
-      '@upstash/redis':
-        specifier: ^1.36.3
-        version: 1.36.3
-      '@vercel/blob':
-        specifier: ^2.3.0
-        version: 2.3.0
-      jose:
-        specifier: ^6.1.3
-        version: 6.1.3
-      nanoid:
-        specifier: ^5.1.6
-        version: 5.1.6
       next:
         specifier: 16.1.6
         version: 16.1.6(@babel/core@7.29.0)(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
+      propusk:
+        specifier: workspace:*
+        version: link:../propusk
       react:
         specifier: 19.2.3
         version: 19.2.3
       react-dom:
         specifier: 19.2.3
         version: 19.2.3(react@19.2.3)
-      wrappergram:
-        specifier: ^1.3.0
-        version: 1.3.0
     devDependencies:
       '@types/node':
-        specifier: ^20
+        specifier: 'catalog:'
         version: 20.19.33
       '@types/react':
         specifier: ^19
@@ -70,7 +69,50 @@ importers:
         specifier: 16.1.6
         version: 16.1.6(@typescript-eslint/parser@8.55.0(eslint@9.39.2)(typescript@5.9.3))(eslint@9.39.2)(typescript@5.9.3)
       typescript:
-        specifier: ^5
+        specifier: 'catalog:'
+        version: 5.9.3
+
+  propusk:
+    dependencies:
+      '@gramio/format':
+        specifier: ^0.3.4
+        version: 0.3.4
+      '@gramio/keyboards':
+        specifier: ^1.3.0
+        version: 1.3.0
+      '@noble/ciphers':
+        specifier: 'catalog:'
+        version: 2.1.1
+      '@noble/hashes':
+        specifier: 'catalog:'
+        version: 2.0.1
+      '@scure/base':
+        specifier: 'catalog:'
+        version: 2.0.0
+      '@scure/bip39':
+        specifier: 'catalog:'
+        version: 2.0.1
+      '@upstash/redis':
+        specifier: ^1.36.3
+        version: 1.36.3
+      '@vercel/blob':
+        specifier: ^2.3.0
+        version: 2.3.0
+      jose:
+        specifier: 'catalog:'
+        version: 6.1.3
+      nanoid:
+        specifier: 'catalog:'
+        version: 5.1.6
+      wrappergram:
+        specifier: ^1.3.0
+        version: 1.3.0
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 20.19.33
+      typescript:
+        specifier: 'catalog:'
         version: 5.9.3
 
 packages:

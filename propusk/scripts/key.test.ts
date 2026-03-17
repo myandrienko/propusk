@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 
 function run(...args: string[]): string {
-  return execFileSync("node", ["scripts/key.ts", ...args], {
+  return execFileSync("node", ["key.ts", ...args], {
+    cwd: import.meta.dirname,
     encoding: "utf-8",
   }).trim();
 }
