@@ -90,7 +90,7 @@ inline keyboard callback.
 `passChallenge`) and user data is added.
 
 User data comes from the webhook payload. User photos (if any) are stored in
-blob storage keyed by a hashed Telegram user id.
+blob storage keyed by a hashed Telegram user id (tguid).
 
 Propusk then sends a confirmation message via the bot with an inline keyboard
 button to sign out (deletes both the challenge and the session, see
@@ -105,15 +105,14 @@ On successful consumption (see `tryConsumeChallenge` in
 
 - session id = challenge id
 - refresh nonce = a unique string
-- bound to the user's Telegram id
+- bound to the user's Telegram id (tguid)
 
-The session is persisted in KV storage keyed by Telegram user id + session id
-(enabling session listing). Returned to the app:
+The session is persisted in KV storage keyed by tguid + session id (enabling
+session listing). Returned to the app:
 
-- refresh token = session id, Telegram user id, and refresh nonce, sealed with
-  expiration
-- access token = short-lived JWT with user data and a client-facing id (sealed
-  Telegram user id)
+- refresh token = session id, tguid, and refresh nonce, sealed with expiration
+- access token = short-lived JWT with user data and a puid (public user id,
+  which is a sealed tguid)
 
 ### Staying Authenticated
 
@@ -136,9 +135,10 @@ Reference classes (`ChallengeRef`, `SessionRef`, `UserRef`, `RefreshNonce` in
 manipulate it, but not the entity's data itself. E.g. `SessionRef` contains user
 id and session id which are enough to construct the session's KV key.
 
-References can be serialized into tokens (usually via `getToken()`) and
-constructed from tokens (usually via `fromToken()`), using `lib/codec.ts` for
-payload encoding and decoding.
+References can be serialized into tokens by sealing (usually via `getToken()`)
+and constructed from tokens by unsealing (usually via `fromToken()`), using
+`lib/codec.ts` for payload encoding and decoding. (User reference has an
+internal `tguid` and a public `puid` which is also a sealed token.)
 
 Any methods that only require a reference and don't require retrieving full
 entity data (like generating a mnemonic for a challenge) should be implemented
