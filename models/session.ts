@@ -1,7 +1,7 @@
 import { nanoid } from "nanoid";
 import { codec } from "../lib/codec.ts";
 import { seal, unseal } from "../lib/seal.ts";
-import { UserRef, type User } from "./user.ts";
+import { UserRef } from "./user.ts";
 
 export interface Session {
   tguid: number;

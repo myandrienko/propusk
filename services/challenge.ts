@@ -12,7 +12,7 @@ import {
   type PendingChallenge,
 } from "../models/challenge.ts";
 import { SessionRef } from "../models/session.ts";
-import { getUserKey, type User } from "../models/user.ts";
+import { getUserKey, UserRef, type User } from "../models/user.ts";
 import { createSession } from "./session.ts";
 
 export interface CreateChallengeInit {
@@ -32,6 +32,11 @@ export interface ReadChallengeResult {
 export type ConsumeChallengeResult =
   | PendingConsumeChallengeResult
   | SuccesfulConsumeChallengeResult;
+
+export interface PassChallengeInit {
+  userRef: UserRef;
+  user: User;
+}
 
 export interface PassChallengeResult {
   challenge: PassedChallenge;
@@ -106,16 +111,17 @@ export async function tryConsumeChallenge(
 
 export async function passChallenge(
   ref: ChallengeRef,
-  user: User,
+  init: PassChallengeInit,
 ): Promise<PassChallengeResult> {
   const redis = getRedis();
+  const tguid = init.userRef.tguid;
   const sessionKey = getChallengeKey(ref.code);
-  const userKey = getUserKey(user.tguid);
+  const userKey = getUserKey(tguid);
 
   const [, challenge] = await Promise.all([
-    redis.set(userKey, user),
+    redis.set(userKey, init.user),
     e.try(
-      () => doPassChallenge([sessionKey], ref.id, user.tguid),
+      () => doPassChallenge([sessionKey], ref.id, tguid),
       (err) =>
         mapScriptError(err, {
           notFound: "Challenge not found",
@@ -124,7 +130,7 @@ export async function passChallenge(
     ),
   ]);
 
-  const provisionalSessionRef = new SessionRef(user.tguid, ref.id);
+  const provisionalSessionRef = new SessionRef(tguid, ref.id);
   return { challenge, provisionalSessionRef };
 }
 

@@ -4,7 +4,6 @@ import { codec } from "../lib/codec.ts";
 import { seal, unseal } from "../lib/seal.ts";
 
 export interface User {
-  tguid: number;
   name: string;
   lang: string;
   image?: string;

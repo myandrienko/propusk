@@ -117,8 +117,8 @@ async function handlePromptConfirm(
 
   try {
     const challengeRef = ChallengeRef.fromToken(token);
-    const user = await fromTgUser(cq.from);
-    const res = await passChallenge(challengeRef, user);
+    const userInit = await fromTgUser(cq.from);
+    const res = await passChallenge(challengeRef, userInit);
     const sessionToken = res.provisionalSessionRef.getToken();
     await tg.api.editMessageText({
       chat_id: cq.message.chat.id,
@@ -191,10 +191,16 @@ async function handleSignOut(
   return true;
 }
 
-async function fromTgUser(tgu: TelegramUser): Promise<User> {
+async function fromTgUser(tgu: TelegramUser): Promise<{
+  userRef: UserRef;
+  user: User;
+}> {
   const userRef = new UserRef(tgu.id);
   const image = await hostUserPhoto(userRef);
   const name = [tgu.first_name, tgu.last_name].filter(Boolean).join(" ");
   const lang = tgu.language_code ?? "en";
-  return { tguid: tgu.id, name, lang, image };
+  return {
+    userRef: new UserRef(tgu.id),
+    user: { name, lang, image },
+  };
 }
