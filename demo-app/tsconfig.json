@@ -13,8 +13,6 @@
     "isolatedModules": true,
     "jsx": "react-jsx",
     "incremental": true,
-    "allowImportingTsExtensions": true,
-    "rewriteRelativeImportExtensions": true,
     "plugins": [
       {
         "name": "next"
@@ -26,7 +24,8 @@
     "**/*.ts",
     "**/*.tsx",
     ".next/types/**/*.ts",
-    ".next/dev/types/**/*.ts"
+    ".next/dev/types/**/*.ts",
+    "**/*.mts"
   ],
   "exclude": ["node_modules"]
 }
