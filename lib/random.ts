@@ -1,3 +1,7 @@
+/**
+ * Partial Fisher–Yates shuffle to pick n random elements from an array.
+ * Caution: original array is mutated.
+ */
 export function pick<T>(arr: T[], n: number = arr.length): T[] {
   const start = arr.length - n;
   for (let i = arr.length - 1; i >= start; i--) {
