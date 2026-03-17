@@ -214,8 +214,5 @@ async function fromTgUser(tgu: TelegramUser): Promise<{
   const image = await hostUserPhoto(userRef);
   const name = [tgu.first_name, tgu.last_name].filter(Boolean).join(" ");
   const lang = tgu.language_code ?? "en";
-  return {
-    userRef: new UserRef(tgu.id),
-    user: { name, lang, image },
-  };
+  return { userRef, user: { name, lang, image } };
 }

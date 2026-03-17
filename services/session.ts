@@ -60,6 +60,7 @@ export async function createSession(
   ]);
 
   if (!user) {
+    // This leaves an active session without user - this is fine
     throw new NotFoundError("User not found");
   }
 
@@ -155,15 +156,15 @@ export async function deleteSession(ref: SessionRef): Promise<void> {
 
 // Private
 
-interface BaseCreateChallengeInit {
+interface BaseCreateSessionInit {
   clientHints?: string;
 }
 
-interface CreateSessionWithKnownRefInit extends BaseCreateChallengeInit {
+interface CreateSessionWithKnownRefInit extends BaseCreateSessionInit {
   sessionRef: SessionRef;
 }
 
-interface CreateSessionForUserInit extends BaseCreateChallengeInit {
+interface CreateSessionForUserInit extends BaseCreateSessionInit {
   userRef: UserRef;
 }
 
@@ -190,7 +191,7 @@ function getJwtSecret() {
 }
 
 const doRefreshSession = script<
-  (nonce: string, nextNonce: string, nextExat: number) => Session
+  (nonce: string, nextNonce: string, nextExat: number) => "OK"
 >`
 local session_json = redis.call('GET', KEYS[1])
 if not session_json then
@@ -205,5 +206,5 @@ end
 session.nonce = ARGV[2]
 local json = cjson.encode(session)
 redis.call('SET', KEYS[1], json, 'EX', ARGV[3])
-return json
+return redis.status_reply('OK')
 `;

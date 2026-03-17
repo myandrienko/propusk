@@ -115,13 +115,13 @@ export async function passChallenge(
 ): Promise<PassChallengeResult> {
   const redis = getRedis();
   const tguid = init.userRef.tguid;
-  const sessionKey = getChallengeKey(ref.code);
+  const challengeKey = getChallengeKey(ref.code);
   const userKey = getUserKey(tguid);
 
   const [, challenge] = await Promise.all([
     redis.set(userKey, init.user),
     e.try(
-      () => doPassChallenge([sessionKey], ref.id, tguid),
+      () => doPassChallenge([challengeKey], ref.id, tguid),
       (err) =>
         mapScriptError(err, {
           notFound: "Challenge not found",
@@ -204,5 +204,5 @@ return json
 const doDeleteChallenge = script<(id: string) => "OK">`
 ${ensureChallenge("challenge")}
 redis.call('DEL', KEYS[1])
-return redis.status_reply("OK")
+return redis.status_reply('OK')
 `;
