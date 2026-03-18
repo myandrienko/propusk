@@ -1,6 +1,9 @@
 import { hex } from "@scure/base";
 import { e } from "./try.ts";
 
+// Shim so the lib compiles without @types/node.
+declare const process: { env: Record<string, string | undefined> };
+
 export type SafeEnv = {
   [K in keyof NodeJS.ProcessEnv]-?: SafeEnvValue;
 };

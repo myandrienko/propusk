@@ -1,13 +1,13 @@
-import { ChallengeRef } from "./models/challenge.ts";
-import { RefreshNonce } from "./models/refresh.ts";
-import { UserRef } from "./models/user.ts";
-import { createChallenge, tryConsumeChallenge } from "./services/challenge.ts";
+import { ChallengeRef } from "../models/challenge.ts";
+import { RefreshNonce } from "../models/refresh.ts";
+import { UserRef } from "../models/user.ts";
+import { createChallenge, tryConsumeChallenge } from "../services/challenge.ts";
 import {
   listSessions,
   refreshSession,
   type SessionTokens,
   verifyAccessToken,
-} from "./services/session.ts";
+} from "../services/session.ts";
 
 const created = await createChallenge({
   clientHints: "testing",
