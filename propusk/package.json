@@ -7,9 +7,9 @@
     "test": "NODE_ENV=test node --env-file=../.env --test"
   },
   "exports": {
-    "./lib/*": "./lib/*",
-    "./models/*": "./models/*",
-    "./services/*": "./services/*"
+    "./lib/*": "./dist/lib/*",
+    "./models/*": "./dist/models/*",
+    "./services/*": "./dist/services/*"
   },
   "dependencies": {
     "@gramio/format": "^0.3.4",

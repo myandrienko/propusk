@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { handleTgUpdate } from "propusk/services/bot.ts";
-import { env } from "propusk/lib/env.ts";
+import { handleTgUpdate } from "propusk/services/bot.js";
+import { env } from "propusk/lib/env.js";
 
 export async function POST(request: NextRequest): Promise<Response> {
   const secret = request.headers.get("x-telegram-bot-api-secret-token");
