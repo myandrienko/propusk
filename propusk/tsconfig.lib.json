@@ -2,10 +2,10 @@
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
     "outDir": "dist",
+    "tsBuildInfoFile": "tsconfig.lib.tsbuildinfo",
     "declaration": true,
     "declarationMap": true,
     "types": []
   },
-  "include": ["**/*.ts"],
-  "exclude": ["**/*.test.ts", "scripts", "node_modules"]
+  "include": ["lib/**/*.ts", "models/**/*.ts", "services/**/*.ts"]
 }
